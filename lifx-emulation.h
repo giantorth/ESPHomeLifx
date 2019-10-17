@@ -2,8 +2,6 @@
 #include "esphome.h"
 #include <ESPAsyncUDP.h>
 #include <ESPAsyncTCP.h>
-//#include <ESP8266WebServer.h>
-//#include <ESP8266WiFi.h>
 #include "./lifx.h"
 #include "./color.h"
 #define debug_print(x, ...) Serial.print (x, ## __VA_ARGS__)
@@ -60,7 +58,7 @@ class lifxUdp : public Component {
 	}
 	//TODO: TCP support necessary?
 	//TcpServer.begin();
-
+	setLight();
   }
   void loop() override {
 	  //todo stuff, unneeded for async services
@@ -520,7 +518,6 @@ void sendPacket(LifxPacket &pkt, AsyncUDPPacket &packet) {
 unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   // broadcast packet on local subnet
   IPAddress remote_addr(Udpi.remoteIP());
-  IPAddress broadcast_addr(remote_addr[0], remote_addr[1], remote_addr[2], 255);
   int remote_port = Udpi.remotePort();
   debug_println(F("+UDP sending: "));
   debug_print(remote_addr);
@@ -764,7 +761,7 @@ void setLight() {
   debug_print(F(", power: "));
   debug_print(power_status);
   debug_println(power_status ? " (on)" : "(off)");
-  auto call = lifxtest->turn_on();
+  auto call = white_led->turn_on();
 
   if (power_status) {
 	int this_hue = map(hue, 0, 65535, 0, 767);
@@ -801,7 +798,7 @@ void setLight() {
 
   }
   else {
-	call = lifxtest->turn_off();
+	call = white_led->turn_off();
 	call.set_rgb(0,0,0);
 	call.set_brightness(0);
 	call.set_transition_length(0);
