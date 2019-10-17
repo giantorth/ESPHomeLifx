@@ -1,7 +1,8 @@
 # ESPHomeLifx
 Port of Lifx protocol to ESPHome.io firmware.
 
-Add to Esphome YAML:
+Add to Esphome YAML.  Compile once before adding platformio_options.
+```
 esphome:
   name: lifxtest
   includes:
