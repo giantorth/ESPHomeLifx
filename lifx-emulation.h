@@ -8,6 +8,8 @@
 #include "./color.h"
 #define debug_print(x, ...) Serial.print (x, ## __VA_ARGS__)
 #define debug_println(x, ...) Serial.println (x, ## __VA_ARGS__)
+#define LIFX_HEADER_LENGTH 36
+#define LIFX_MAX_PACKET_LENGTH 53
 
 class lifxUdp : public Component {
  public:
@@ -19,8 +21,10 @@ class lifxUdp : public Component {
   long bri = 65535;
   long kel = 2000;
   long dim = 0;
-  // Enter a MAC address and IP address for your controller below.
+  // Enter a MAC address and IP address for your device below.
   // The IP address will be dependent on your local network:
+  
+  // Test ESP hardware
   //4c:11:ae:0d:7f:fe
   //4c:11:ae:0d:1e:5a
 
@@ -63,7 +67,9 @@ class lifxUdp : public Component {
   }
   
   void eepromfake() {
+	// not supported properly in ESPHome yet.
 	return;
+	
 	// read in settings from EEPROM (if they exist) for bulb label and tags
 	if (EEPROM.read(EEPROM_CONFIG_START) == EEPROM_CONFIG[0]
 	  && EEPROM.read(EEPROM_CONFIG_START + 1) == EEPROM_CONFIG[1]
@@ -183,7 +189,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 	case GET_PAN_GATEWAY:
 	  {
 		// we are a gateway, so respond to this
-		debug_print(F(" GET_PAN_GATEWAY"));
+		debug_println(F(" GET_PAN_GATEWAY"));
 
 		// respond with the UDP port
 		response.packet_type = PAN_GATEWAY;
@@ -515,71 +521,79 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   // broadcast packet on local subnet
   IPAddress remote_addr(Udpi.remoteIP());
   IPAddress broadcast_addr(remote_addr[0], remote_addr[1], remote_addr[2], 255);
-
-  debug_println(F("+UDP sending"));
+  int remote_port = Udpi.remotePort();
+  debug_println(F("+UDP sending: "));
   debug_print(remote_addr);
+  debug_print(F(":"));
+  debug_print(remote_port);
+  debug_println();
   printLifxPacket(pkt);
   debug_println();
-  AsyncUDP Udp;
-  Udp.connect(broadcast_addr, Udpi.remotePort());
+  
+  uint8_t _message[LIFX_MAX_PACKET_LENGTH];
+  int _packetLength;
+  uint8_t _sequenceNum;
+ 
+  memset(_message, 0, LIFX_MAX_PACKET_LENGTH);   // initialize _message with zeroes
+  //_packetLength = LIFX_HEADER_LENGTH;
+  _sequenceNum = 0;
 
-  // size
-  Udp.write(lowByte(LifxPacketSize + pkt.data_size));
-  Udp.write(highByte(LifxPacketSize + pkt.data_size));
+    // size
+  _message[_packetLength++] = (lowByte(LifxPacketSize + pkt.data_size));
+  _message[_packetLength++] = (highByte(LifxPacketSize + pkt.data_size));
 
   // protocol
-  Udp.write(lowByte(pkt.protocol));
-  Udp.write(highByte(pkt.protocol));
+  _message[_packetLength++] = (lowByte(pkt.protocol));
+  _message[_packetLength++] = (highByte(pkt.protocol));
 
   // reserved1
-  Udp.write(lowByte(0x00));
-  Udp.write(lowByte(0x00));
-  Udp.write(lowByte(0x00));
-  Udp.write(lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
 
   // bulbAddress mac address
   for (int i = 0; i < sizeof(mac); i++) {
-	Udp.write(lowByte(mac[i]));
+	_message[_packetLength++] = (lowByte(mac[i]));
   }
 
   // reserved2
-  Udp.write(lowByte(0x00));
-  Udp.write(lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
 
   // site mac address
   for (int i = 0; i < sizeof(site_mac); i++) {
-	Udp.write(lowByte(site_mac[i]));
+	_message[_packetLength++] = (lowByte(site_mac[i]));
   }
 
   // reserved3
-  Udp.write(lowByte(0x00));
-  Udp.write(lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
 
   // timestamp
-  Udp.write(lowByte(0x00));
-  Udp.write(lowByte(0x00));
-  Udp.write(lowByte(0x00));
-  Udp.write(lowByte(0x00));
-  Udp.write(lowByte(0x00));
-  Udp.write(lowByte(0x00));
-  Udp.write(lowByte(0x00));
-  Udp.write(lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
 
   //packet type
-  Udp.write(lowByte(pkt.packet_type));
-  Udp.write(highByte(pkt.packet_type));
+  _message[_packetLength++] = (lowByte(pkt.packet_type));
+  _message[_packetLength++] = (highByte(pkt.packet_type));
 
   // reserved4
-  Udp.write(lowByte(0x00));
-  Udp.write(lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x00));
 
   //data
   for (int i = 0; i < pkt.data_size; i++) {
-	Udp.write(lowByte(pkt.data[i]));
+	_message[_packetLength++] = (lowByte(pkt.data[i]));
   }
 
-  Udp.close();
-
+  Udpi.write(_message, _packetLength);
   return LifxPacketSize + pkt.data_size;
 }
 
