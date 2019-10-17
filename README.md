@@ -1,8 +1,16 @@
 # ESPHomeLifx
 Port of Lifx protocol to ESPHome.io firmware.
 
-Currently not sending packets.
+Add to Esphome YAML:
+esphome:
+  name: lifxtest
+  includes:
+    - lifx-emulation.h
+  platformio_options:
+    lib_deps: ESPAsyncUDP
+   
+custom_component:
+- lambda: |-
+    auto lifxUdpSupport = new lifxUdp();
+    return {lifxUdpSupport};
 
-TODO: Make packets go
-
-TODO: Add support for latest protocol
