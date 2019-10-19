@@ -122,8 +122,6 @@ rgbb hsv2rgb(hsv in)
     return out;     
 }
 
-
-
 /* Convert Kelvin to RGB: based on http://bit.ly/1bc83he */
 
 rgbb kelvinToRGB(long kelvin) {
@@ -171,21 +169,22 @@ rgbb kelvinToRGB(long kelvin) {
   return kelvin_rgb;
 }
 
-
 struct LifxPacket {
   //frame
   uint16_t size; //little endian
   uint16_t protocol; //little endian
   uint32_t reserved1;  //source
+
   //frame address
-  byte bulbAddress[6];  
+  byte bulbAddress[6];  //device mac
   uint16_t reserved2; // mac padding
   byte site[6];  // "reserved"
-  //bool res_required; // response message required
-  //bool ack_required; // acknowledgement message required
-  //bool reservedbits[6]; // 6 bits of reserved?
-  uint16_t reserved3;
-  //uint8_t sequence; //message sequence number
+   //bool res_required; // response message required
+   //bool ack_required; // acknowledgement message required
+   //bool reservedbits[6]; // 6 bits of reserved?
+  uint8_t reserved3;
+  uint8_t sequence; //message sequence number
+
   //protocol header
   uint64_t timestamp;
   uint16_t packet_type; //little endian
@@ -248,6 +247,8 @@ const byte GET_LIGHT_STATE = 0x65;
 const byte SET_LIGHT_STATE = 0x66;
 const byte LIGHT_STATUS = 0x6b;
 
+const byte SET_WAVEFORM_OPTIONAL = 0x77;
+
 const byte GET_MESH_FIRMWARE_STATE = 0x0e;
 const byte MESH_FIRMWARE_STATE = 0x0f;
 
@@ -274,6 +275,8 @@ class lifxUdp : public Component {
   long bri = 65535;
   long kel = 2000;
   long dim = 0;
+  uint8_t _sequence = 0x00;
+
   // Enter a MAC address and IP address for your device below.
   // The IP address will be dependent on your local network:
   
@@ -433,6 +436,7 @@ class lifxUdp : public Component {
 	memcpy(request.site, site, 6);
 
 	request.reserved3   = packetBuffer[22] + packetBuffer[23];
+	request.sequence	= _sequence++;
 	request.timestamp   = packetBuffer[24] + packetBuffer[25] + packetBuffer[26] + packetBuffer[27] +
 	  					  packetBuffer[28] + packetBuffer[29] + packetBuffer[30] + packetBuffer[31];
 	request.packet_type = packetBuffer[32] + (packetBuffer[33] << 8); //little endian
@@ -449,7 +453,7 @@ class lifxUdp : public Component {
 void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
   debug_print(F("  Received packet type "));
   debug_println(request.packet_type, HEX);
-
+  printLifxPacket(request);
   LifxPacket response;
   switch (request.packet_type) {
 
@@ -499,6 +503,24 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		sat = word(request.data[4], request.data[3]);
 		bri = word(request.data[6], request.data[5]);
 		kel = word(request.data[8], request.data[7]);
+
+		 for(int i=0; i<request.data_size; i++){
+		  debug_print(request.data[i], HEX);
+		  debug_print(SPACE);
+		}
+		debug_println();
+
+		setLight();
+	  }
+	  break;
+
+	case SET_WAVEFORM_OPTIONAL:
+	  {
+		// set the light colors
+		hue = word(request.data[2], request.data[2]);
+		sat = word(request.data[4], request.data[4]);
+		bri = word(request.data[6], request.data[5]);
+		kel = word(request.data[8], request.data[8]);
 
 		 for(int i=0; i<request.data_size; i++){
 		  debug_print(request.data[i], HEX);
@@ -699,17 +721,17 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		response.data_size = sizeof(VersionData);
 		sendPacket( response, packet );
 
-		/*
+		
 		// respond again to get command (real bulbs respond twice, slightly diff data (see below)
 		response.packet_type = VERSION_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
 		byte VersionData2[] = {
-		  lowByte(LifxVersionVendor), //vendor stays the same
-		  highByte(LifxVersionVendor),
+		  lowByte(LifxBulbVendor), //vendor stays the same
+		  highByte(LifxBulbVendor),
 		  0x00,
 		  0x00,
-		  lowByte(LifxVersionProduct*2), //product is 2, rather than 1
-		  highByte(LifxVersionProduct*2),
+		  lowByte(LifxBulbProduct*2), //product is 2, rather than 1
+		  highByte(LifxBulbProduct*2),
 		  0x00,
 		  0x00,
 		  0x00, //version is 0, rather than 1
@@ -721,7 +743,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		memcpy(response.data, VersionData2, sizeof(VersionData2));
 		response.data_size = sizeof(VersionData2);
 		sendPacket( response, packet );
-		*/
+		
 	  }
 	  break;
 
@@ -798,21 +820,19 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   
   uint8_t _message[LIFX_MAX_PACKET_LENGTH];
   int _packetLength = 0;
-  uint8_t _sequenceNum;
  
   memset(_message, 0, LIFX_MAX_PACKET_LENGTH);   // initialize _message with zeroes
   //_packetLength = LIFX_HEADER_LENGTH;
-  _sequenceNum = 0;
 
-    // size
+    // size uint16_t
   _message[_packetLength++] = (lowByte(LifxPacketSize + pkt.data_size));
   _message[_packetLength++] = (highByte(LifxPacketSize + pkt.data_size));
 
-  // protocol
+  // protocol uint16_t
   _message[_packetLength++] = (lowByte(pkt.protocol));
   _message[_packetLength++] = (highByte(pkt.protocol));
 
-  // reserved1
+  // reserved1 .... source multicast with all zeros
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
@@ -836,8 +856,10 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
 
+  // sequence
+  _message[_packetLength++] = (pkt.sequence);
+
   // timestamp
-  _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
@@ -1083,8 +1105,8 @@ void setLight() {
 	// LIFXBulb.fadeHSB(this_hue, this_sat, this_bri);
 	////led_strip.setPixelColor (0, r, g, b);
 	call.set_rgb(r,g,b);
-	call.set_brightness(bri/65535);
-	call.set_color_temperature(1000000/kel);
+	call.set_brightness(1);//(bri/65535);
+	//call.set_color_temperature(1000000/kel);
 	call.set_transition_length(0);
 
   }
