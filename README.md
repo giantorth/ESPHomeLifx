@@ -1,17 +1,19 @@
 # ESPHomeLifx
 Port of Lifx protocol to ESPHome.io firmware.
+Code used from https://github.com/area3001/esp8266_lifx
 
-Add to Esphome YAML.  
-```
-esphome:
-  name: lifxtest
-  includes:
-    - lifx-emulation.h
-  libraries:
-    lib_deps: ESPAsyncUDP
-   
-custom_component:
-- lambda: |-
-    auto lifxUdpSupport = new lifxUdp();
-    return {lifxUdpSupport};
+Working:
+- Can detect and control HSBK values from offical Lifx app
+- LightDJ will detect and control light also
+- Detected by lifxlan python library
+
+Lots of work still todo:
+- Fake current firmware versions so app doesn't want to upgrade
+- app flickers when checking bulb status
+- Somehow automatically read esphome name so it doesn't need to be set in lamba variable
+- Code written for RGB led only
+- Sequence number not incrementing
+
+Debugging:
+- Serial console will output all in/out packet contents in HEX
 
