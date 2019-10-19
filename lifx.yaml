@@ -1,0 +1,91 @@
+esphome:
+  name: lifxtest
+  platform: ESP8266
+  board: d1_mini
+  includes:
+    - lifx-emulation.h
+  platformio_options:
+    lib_deps: ESPAsyncUDP
+
+wifi:
+  networks:
+  - ssid: "YOURINFORMATIONHERE"
+    password: !secret wifi
+  fast_connect: TRUE
+  
+# Enable logging
+logger:
+  level: WARN
+  esp8266_store_log_strings_in_flash: False
+  
+# Enable Home Assistant API
+api:
+  password: !secret ota
+  reboot_timeout: 0s
+
+ota:
+  password: !secret ota
+  
+output:
+  - platform: esp8266_pwm
+    pin: D1
+    id: P1
+    #frequency: 4000 Hz
+    #inverted: True
+    min_power: 0
+    max_power: 1
+
+  - platform: esp8266_pwm
+    pin: D2
+    id: P2
+    #frequency: 4000 Hz
+    #inverted: True
+    min_power: 0
+    max_power: 1
+
+  - platform: esp8266_pwm
+    pin: D5
+    id: P5
+    #frequency: 4000 Hz
+    #inverted: True
+    min_power: 0
+    max_power: 1
+
+  - platform: esp8266_pwm
+    pin: D6
+    id: P6
+    #frequency: 4000 Hz
+    #inverted: True
+    min_power: 0
+    max_power: 1
+
+  - platform: esp8266_pwm
+    pin: D7
+    id: P7
+    #frequency: 4000 Hz
+    #inverted: True
+    min_power: 0
+    max_power: 1
+
+light:
+  - platform: rgb
+    id: lifx
+    name: "lifx"
+    #cold_white: P1
+    #warm_white: P2
+    #cold_white_color_temperature: 6500 K
+    #warm_white_color_temperature: 2700 K
+    red: P7
+    green: P6
+    blue: P5
+    #default_transition_length: 0.4s
+    #gamma_correct: 0.8
+    
+custom_component:
+- lambda: |-
+    byte mac[6];
+    char lightName[32] = "WtfLightTest";
+    WiFi.macAddress(mac);
+    auto lifxUdpSupport = new lifxUdp();
+    lifxUdpSupport->beginUDP(mac, lightName);
+    return {lifxUdpSupport};

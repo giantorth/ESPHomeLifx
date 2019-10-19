@@ -3,10 +3,17 @@
 #include <ESPAsyncUDP.h>
 #include <ESPAsyncTCP.h>
 //#include "color.h"
-#define debug_print(x, ...) Serial.print (x, ## __VA_ARGS__)
-#define debug_println(x, ...) Serial.println (x, ## __VA_ARGS__)
-//#define EEPROM.read(x, ...) Serial.println(x, ## __VA_ARGS__)
-//#define EEPROM.write(x, ...) Serial.println(x, ## __VA_ARGS__)
+
+#define DEBUG
+
+#ifdef DEBUG
+ #define debug_print(x, ...) Serial.print (x, ## __VA_ARGS__)
+ #define debug_println(x, ...) Serial.println (x, ## __VA_ARGS__)
+#else
+ #define debug_print(x, ...)
+ #define debug_println(x, ...)
+#endif
+
 #define LIFX_HEADER_LENGTH 36
 #define LIFX_MAX_PACKET_LENGTH 53
 /* Source: http://stackoverflow.com/questions/3018313/algorithm-to-convert-rgb-to-hsv-and-hsv-to-rgb-in-range-0-255-for-both */
@@ -173,7 +180,7 @@ struct LifxPacket {
   //frame
   uint16_t size; //little endian
   uint16_t protocol; //little endian
-  uint32_t reserved1;  //source
+  byte source[4];  //source
 
   //frame address
   byte bulbAddress[6];  //device mac
@@ -203,6 +210,8 @@ const unsigned int LifxPort            = 56700;  // local port to listen on
 const unsigned int LifxBulbLabelLength = 32;
 const unsigned int LifxBulbTagsLength  = 8;
 const unsigned int LifxBulbTagLabelsLength = 32;
+#define LIFX_HEADER_LENGTH 36
+#define LIFX_MAX_PACKET_LENGTH 53
 
 // firmware versions, etc
 const unsigned int LifxBulbVendor  = 1;
@@ -265,9 +274,8 @@ const byte MESH_FIRMWARE_STATE = 0x0f;
 // helpers
 #define SPACE " "
 
-class lifxUdp : public Component {
+class lifxUdp: public Component {
  public:
-  //char lightName = 'lifxtest';
   float maxColor = 255;
   // initial bulb values - warm white!
   long power_status = 65535;
@@ -286,8 +294,8 @@ class lifxUdp : public Component {
   //4c:11:ae:0d:7f:fe
   //4c:11:ae:0d:1e:5a
   // 80:7d:3a:2c:97:3b
-  
-  byte mac[6] = { 0x4C, 0x11, 0xAE, 0x0D, 0x1E, 0x5A };
+  byte mac[6];
+  //byte mac[6] = { 0x4C, 0x11, 0xAE, 0x0D, 0x1E, 0x5A };
   //byte mac[6] = { 0x80, 0x7d, 0x3a, 0x2c, 0x97, 0x3b };
 
 =======
@@ -296,7 +304,7 @@ class lifxUdp : public Component {
   byte site_mac[6] = { 0x4C, 0x49, 0x46, 0x58, 0x56, 0x32 }; // spells out "LIFXV2" - version 2 of the app changes the site address to this...
 
   // label (name) for this bulb
-  char bulbLabel[LifxBulbLabelLength] = "LED lamp";
+  char bulbLabel[LifxBulbLabelLength];  // = lifxLightName; //"LED lamp";
 
   // tags for this bulb
   char bulbTags[LifxBulbTagsLength] = {
@@ -305,12 +313,24 @@ class lifxUdp : public Component {
   char bulbTagLabels[LifxBulbTagLabelsLength] = "";
 
   AsyncUDP Udp;
-  //WiFiServer TcpServer(LifxPort);
-  
+
   void setup() override {
-	
+	  // moved to beginUDP()
+  }
+
+  void beginUDP( byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] ) {
+	for(int i=0; i<sizeof(bulbMac); i++){
+		mac[i] = bulbMac[i];
+	}
+	debug_print(F("Setting Light Name: "));
+	debug_println(lifxLightName);
+	for(int j=0; j<LifxBulbLabelLength; j++){
+		bulbLabel[j] = lifxLightName[j];
+	}
+	debug_println(bulbLabel);
+
 	eepromfake();
-  // start listening for packets
+    // start listening for packets
 	if(Udp.listen(LifxPort)) {
 		ESP_LOGD("LIFXUDP", "Listerner Enabled");
 		Udp.onPacket(
@@ -436,8 +456,10 @@ class lifxUdp : public Component {
 
 	request.size        = packetBuffer[0] + (packetBuffer[1] << 8); //little endian
 	request.protocol    = packetBuffer[2] + (packetBuffer[3] << 8); //little endian
+
 	// this is the source of the packet
-	request.reserved1   = packetBuffer[4] + packetBuffer[5] + packetBuffer[6] + packetBuffer[7];
+	byte sourceID[] = { packetBuffer[4], packetBuffer[5], packetBuffer[6], packetBuffer[7] };
+	memcpy(request.source, sourceID, 4);
 
 	byte bulbAddress[] = {
 		packetBuffer[8], packetBuffer[9], packetBuffer[10], packetBuffer[11], packetBuffer[12], packetBuffer[13]
@@ -458,8 +480,6 @@ class lifxUdp : public Component {
 	request.packet_type = packetBuffer[32] + (packetBuffer[33] << 8); //little endian
 	request.reserved4   = packetBuffer[34] + packetBuffer[35];
 
-	debug_print(F("Payload size: "));
-	debug_println( packetSize );
 	int j=0;
 	for (unsigned int i = LifxPacketSize; i < packetSize; i++) {
 		//debug_println(i);
@@ -472,9 +492,11 @@ class lifxUdp : public Component {
 void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
   debug_print(F("Received packet type "));
   debug_println(request.packet_type, HEX);
-  printLifxPacket(request);
-  debug_println();
- LifxPacket response;
+  LifxPacket response;
+  for( int x = 0; x < sizeof( request.source ); x++ ) {
+	  	response.source[x] = request.source[x];
+		//debug_print(response.source[x], HEX);
+  }
   switch (request.packet_type) {
 
 	case GET_PAN_GATEWAY:
@@ -497,6 +519,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		response.data_size = sizeof(UDPdata);
 		sendPacket( response, packet );
 
+		/*
 		// respond with the TCP port details
 		response.packet_type = PAN_GATEWAY;
 		response.protocol = LifxProtocol_AllBulbsResponse;
@@ -511,7 +534,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		//memcpy(response.data, TCPdata, sizeof(TCPdata));
 		//response.data_size = sizeof(TCPdata);
 		//sendPacket( response, packet );
-
+		*/
 	  }
 	  break;
 
@@ -524,12 +547,6 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		bri = word(request.data[6], request.data[5]);
 		kel = word(request.data[8], request.data[7]);
 
-		 for(int i=0; i<request.data_size; i++){
-		  debug_print(request.data[i], HEX);
-		  debug_print(SPACE);
-		}
-		debug_println();
-
 		setLight();
 	  }
 	  break;
@@ -537,19 +554,12 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 	case SET_WAVEFORM:
 	case SET_WAVEFORM_OPTIONAL:
 	  {
-		// set the light colors
+		// set the light colors.  Everything is shifted over one byte from standard light messages
 		hue = word(request.data[3], request.data[2]);
 		sat = word(request.data[5], request.data[4]);
 		bri = word(request.data[7], request.data[6]);
 		kel = word(request.data[9], request.data[8]);
-
-		 for(int i=0; i<request.data_size; i++){
-		  if(request.data[i] <= 0x0F) { debug_print(F("0"));}  // pad with zeros for proper alignment
-		  debug_print(request.data[i], HEX);
-		  debug_print(SPACE);
-		}
-		debug_println();
-
+		// not supported, all the waveform and optional flags
 		setLight();
 	  }
 	  break;
@@ -832,12 +842,10 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   // broadcast packet on local subnet
   IPAddress remote_addr(Udpi.remoteIP());
   int remote_port = Udpi.remotePort();
-  debug_println(F("+UDP sending: "));
+  debug_print(F("+UDP packet building triggered by: "));
   debug_print(remote_addr);
   debug_print(F(":"));
   debug_print(remote_port);
-  debug_println();
-  printLifxPacket(pkt);
   debug_println();
   
   uint8_t _message[LIFX_MAX_PACKET_LENGTH];
@@ -846,7 +854,7 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   memset(_message, 0, LIFX_MAX_PACKET_LENGTH);   // initialize _message with zeroes
   //_packetLength = LIFX_HEADER_LENGTH;
 
-    // size uint16_t
+  //// FRAME 
   _message[_packetLength++] = (lowByte(LifxPacketSize + pkt.data_size));
   _message[_packetLength++] = (highByte(LifxPacketSize + pkt.data_size));
 
@@ -854,34 +862,36 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   _message[_packetLength++] = (lowByte(pkt.protocol));
   _message[_packetLength++] = (highByte(pkt.protocol));
 
-  // reserved1 .... source multicast with all zeros
-  _message[_packetLength++] = (lowByte(0x00));
-  _message[_packetLength++] = (lowByte(0x00));
-  _message[_packetLength++] = (lowByte(0x00));
-  _message[_packetLength++] = (lowByte(0x00));
+  // source/reserved1 .... real bulbs always include this number 
+  _message[_packetLength++] = pkt.source[0];
+  _message[_packetLength++] = pkt.source[1];
+  _message[_packetLength++] = pkt.source[2];
+  _message[_packetLength++] = pkt.source[3];
 
-  // bulbAddress mac address
+  //// FRAME ADDRESS
+  // bulbAddress mac address (target)
   for (int i = 0; i < sizeof(mac); i++) {
 	_message[_packetLength++] = (lowByte(mac[i]));
   }
 
-  // reserved2
+  // padding MAC
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
 
-  // site mac address
+  // site mac address (LIFXV2)
   for (int i = 0; i < sizeof(site_mac); i++) {
 	_message[_packetLength++] = (lowByte(site_mac[i]));
   }
 
   // reserved3: Flags - 6 bits reserved, 1bit ack required, 1bit res required
-  _message[_packetLength++] = (lowByte(0x00));
+  _message[_packetLength++] = (lowByte(0x01));  //forcing a repsonse
+
+  // Sequence, unimplemented
   _message[_packetLength++] = (lowByte(0x00));
 
-  // sequence
-  _message[_packetLength++] = (pkt.sequence);
-
-  // timestamp
+  //// PROTOCOL HEADER
+  // real bulbs send timestamp?  docs say "reserved"
+  _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
@@ -903,163 +913,19 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
 	_message[_packetLength++] = (lowByte(pkt.data[i]));
   }
 
+  // async packets get a free write back to the original object
   Udpi.write(_message, _packetLength);
-  return LifxPacketSize + pkt.data_size;
-}
 
-unsigned int sendTCPPacket(LifxPacket &pkt) {
-
-  ESP_LOGD("LIFXUDP", "+TCP ");
-  printLifxPacket(pkt);
-  ESP_LOGD("LIFXUDP", "");
-  
-  byte TCPBuffer[128]; //buffer to hold outgoing packet,
-  int byteCount = 0;
-
-  // size
-  TCPBuffer[byteCount++] = lowByte(LifxPacketSize + pkt.data_size);
-  TCPBuffer[byteCount++] = highByte(LifxPacketSize + pkt.data_size);
-
-  // protocol
-  TCPBuffer[byteCount++] = lowByte(pkt.protocol);
-  TCPBuffer[byteCount++] = highByte(pkt.protocol);
-
-  // reserved1
-  TCPBuffer[byteCount++] = lowByte(0x00);
-  TCPBuffer[byteCount++] = lowByte(0x00);
-  TCPBuffer[byteCount++] = lowByte(0x00);
-  TCPBuffer[byteCount++] = lowByte(0x00);
-
-  // bulbAddress mac address
-  for (int i = 0; i < sizeof(mac); i++) {
-	TCPBuffer[byteCount++] = lowByte(mac[i]);
-  }
-
-  // reserved2
-  TCPBuffer[byteCount++] = lowByte(0x00);
-  TCPBuffer[byteCount++] = lowByte(0x00);
-
-  // site mac address
-  for (int i = 0; i < sizeof(site_mac); i++) {
-	TCPBuffer[byteCount++] = lowByte(site_mac[i]);
-  }
-
-  // reserved3
-  TCPBuffer[byteCount++] = lowByte(0x00);
-  TCPBuffer[byteCount++] = lowByte(0x00);
-
-  // timestamp
-  TCPBuffer[byteCount++] = lowByte(0x00);
-  TCPBuffer[byteCount++] = lowByte(0x00);
-  TCPBuffer[byteCount++] = lowByte(0x00);
-  TCPBuffer[byteCount++] = lowByte(0x00);
-  TCPBuffer[byteCount++] = lowByte(0x00);
-  TCPBuffer[byteCount++] = lowByte(0x00);
-  TCPBuffer[byteCount++] = lowByte(0x00);
-  TCPBuffer[byteCount++] = lowByte(0x00);
-
-  //packet type
-  TCPBuffer[byteCount++] = lowByte(pkt.packet_type);
-  TCPBuffer[byteCount++] = highByte(pkt.packet_type);
-
-  // reserved4
-  TCPBuffer[byteCount++] = lowByte(0x00);
-  TCPBuffer[byteCount++] = lowByte(0x00);
-
-  //data
-  for (int i = 0; i < pkt.data_size; i++) {
-	TCPBuffer[byteCount++] = lowByte(pkt.data[i]);
-  }
-
-  //client.write(TCPBuffer, byteCount);
-
-  return LifxPacketSize + pkt.data_size;
-}
-
-// print out a LifxPacket data structure as a series of hex bytes - used for DEBUG
-void printLifxPacket(LifxPacket &pkt) {
+  // debugging output
   debug_print(F("Packet processed: "));
-  // size
-  debug_print(lowByte(LifxPacketSize + pkt.data_size), HEX);
-  debug_print(SPACE);
-  debug_print(highByte(LifxPacketSize + pkt.data_size), HEX);
-  debug_print(SPACE);
-
-  // protocol
-  debug_print(lowByte(pkt.protocol), HEX);
-  debug_print(SPACE);
-  debug_print(highByte(pkt.protocol), HEX);
-  debug_print(SPACE);
-
-  // reserved1
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-
-  // bulbAddress mac address
-  for (int i = 0; i < sizeof(mac); i++) {
-	debug_print(lowByte(mac[i]), HEX);
+  for (int j = 0; j < _packetLength; j++) {
+	if(_message[j] <= 0x0F) { debug_print(F("0"));}  // pad with zeros for proper alignment
+	debug_print(_message[j], HEX);
 	debug_print(SPACE);
   }
-
-  // reserved2
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-
-  // site mac address
-  for (int i = 0; i < sizeof(site_mac); i++) {
-	debug_print(lowByte(site_mac[i]), HEX);
-	debug_print(SPACE);
-  }
-
-  // reserved3
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-
-  // timestamp
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-
-  //packet type
-  debug_print(lowByte(pkt.packet_type), HEX);
-  debug_print(SPACE);
-  debug_print(highByte(pkt.packet_type), HEX);
-  debug_print(SPACE);
-
-  // reserved4
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-  debug_print(lowByte(0x00), HEX);
-  debug_print(SPACE);
-
-  //data
-  for (int i = 0; i < pkt.data_size; i++) {
-	debug_print(pkt.data[i], HEX);
-	debug_print(SPACE);
-  }
+  //printLifxPacket(pkt, _packetLength);
+  debug_println();
+  return LifxPacketSize + pkt.data_size;
 }
 
 void setLight() {
@@ -1076,7 +942,7 @@ void setLight() {
   debug_print(F(", power: "));
   debug_print(power_status);
   debug_println(power_status ? " (on)" : "(off)");
-  auto call = lifxtest->turn_on();
+  auto call = lifx->turn_on();
 
   if (power_status && bri) {
 	int this_hue = map(hue, 0, 65535, 0, 767);
@@ -1134,7 +1000,7 @@ void setLight() {
 
   }
   else {
-	call = lifxtest->turn_off();
+	call = lifx->turn_off();
 	call.set_rgb(0,0,0);
 	call.set_brightness(0);
 	call.set_transition_length(0);
