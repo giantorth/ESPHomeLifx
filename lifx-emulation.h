@@ -278,6 +278,7 @@ class lifxUdp : public Component {
   long dim = 0;
   uint8_t _sequence = 0x00;
 
+<<<<<<< Updated upstream
   // Enter a MAC address and IP address for your device below.
   // The IP address will be dependent on your local network:
   
@@ -289,6 +290,9 @@ class lifxUdp : public Component {
   byte mac[6] = { 0x4C, 0x11, 0xAE, 0x0D, 0x1E, 0x5A };
   //byte mac[6] = { 0x80, 0x7d, 0x3a, 0x2c, 0x97, 0x3b };
 
+=======
+  byte mac[6];
+>>>>>>> Stashed changes
   byte site_mac[6] = { 0x4C, 0x49, 0x46, 0x58, 0x56, 0x32 }; // spells out "LIFXV2" - version 2 of the app changes the site address to this...
 
   // label (name) for this bulb
