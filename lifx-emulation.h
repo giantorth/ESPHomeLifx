@@ -1,16 +1,273 @@
-#include <EEPROM.h>
+//#include <EEPROM.h>
 #include "esphome.h"
 #include <ESPAsyncUDP.h>
 #include <ESPAsyncTCP.h>
-#include "./lifx.h"
-#include "./color.h"
+//#include "color.h"
 #define debug_print(x, ...) Serial.print (x, ## __VA_ARGS__)
 #define debug_println(x, ...) Serial.println (x, ## __VA_ARGS__)
+//#define EEPROM.read(x, ...) Serial.println(x, ## __VA_ARGS__)
+//#define EEPROM.write(x, ...) Serial.println(x, ## __VA_ARGS__)
 #define LIFX_HEADER_LENGTH 36
 #define LIFX_MAX_PACKET_LENGTH 53
+/* Source: http://stackoverflow.com/questions/3018313/algorithm-to-convert-rgb-to-hsv-and-hsv-to-rgb-in-range-0-255-for-both */
+
+struct rgbb {
+    double r;       // percent
+    double g;       // percent
+    double b;       // percent
+};
+
+struct hsv {
+    double h;       // angle in degrees
+    double s;       // percent
+    double v;       // percent
+};
+
+static hsv      rgb2hsv(rgbb in);
+static rgbb      hsv2rgb(hsv in);
+
+hsv rgb2hsv(rgbb in)
+{
+    hsv         out;
+    double      min, max, delta;
+
+    min = in.r < in.g ? in.r : in.g;
+    min = min  < in.b ? min  : in.b;
+
+    max = in.r > in.g ? in.r : in.g;
+    max = max  > in.b ? max  : in.b;
+
+    out.v = max;                                // v
+    delta = max - min;
+    if( max > 0.0 ) {
+        out.s = (delta / max);                  // s
+    } else {
+        // r = g = b = 0                        // s = 0, v is undefined
+        out.s = 0.0;
+        out.h = NAN;                            // its now undefined
+        return out;
+    }
+    if( in.r >= max )                           // > is bogus, just keeps compilor happy
+        out.h = ( in.g - in.b ) / delta;        // between yellow & magenta
+    else
+    if( in.g >= max )
+        out.h = 2.0 + ( in.b - in.r ) / delta;  // between cyan & yellow
+    else
+        out.h = 4.0 + ( in.r - in.g ) / delta;  // between magenta & cyan
+
+    out.h *= 60.0;                              // degrees
+
+    if( out.h < 0.0 )
+        out.h += 360.0;
+
+    return out;
+}
+
+
+rgbb hsv2rgb(hsv in)
+{
+    double      hh, p, q, t, ff;
+    long        i;
+    rgbb         out;
+
+    if(in.s <= 0.0) {       // < is bogus, just shuts up warnings
+        out.r = in.v;
+        out.g = in.v;
+        out.b = in.v;
+        return out;
+    }
+    hh = in.h;
+    if(hh >= 360.0) hh = 0.0;
+    hh /= 60.0;
+    i = (long)hh;
+    ff = hh - i;
+    p = in.v * (1.0 - in.s);
+    q = in.v * (1.0 - (in.s * ff));
+    t = in.v * (1.0 - (in.s * (1.0 - ff)));
+
+    switch(i) {
+    case 0:
+        out.r = in.v;
+        out.g = t;
+        out.b = p;
+        break;
+    case 1:
+        out.r = q;
+        out.g = in.v;
+        out.b = p;
+        break;
+    case 2:
+        out.r = p;
+        out.g = in.v;
+        out.b = t;
+        break;
+
+    case 3:
+        out.r = p;
+        out.g = q;
+        out.b = in.v;
+        break;
+    case 4:
+        out.r = t;
+        out.g = p;
+        out.b = in.v;
+        break;
+    case 5:
+    default:
+        out.r = in.v;
+        out.g = p;
+        out.b = q;
+        break;
+    }
+    return out;     
+}
+
+/* Convert Kelvin to RGB: based on http://bit.ly/1bc83he */
+
+rgbb kelvinToRGB(long kelvin) {
+  rgbb kelvin_rgb;
+  long temperature = kelvin / 100;
+
+  if(temperature <= 66) {
+    kelvin_rgb.r = 255;
+  } 
+  else {
+    kelvin_rgb.r = temperature - 60;
+    kelvin_rgb.r = 329.698727446 * pow(kelvin_rgb.r, -0.1332047592);
+    if(kelvin_rgb.r < 0) kelvin_rgb.r = 0;
+    if(kelvin_rgb.r > 255) kelvin_rgb.r = 255;
+  }
+
+  if(temperature <= 66) {
+    kelvin_rgb.g = temperature;
+    kelvin_rgb.g = 99.4708025861 * log(kelvin_rgb.g) - 161.1195681661;
+    if(kelvin_rgb.g < 0) kelvin_rgb.g = 0;
+    if(kelvin_rgb.g > 255) kelvin_rgb.g = 255;
+  } 
+  else {
+    kelvin_rgb.g = temperature - 60;
+    kelvin_rgb.g = 288.1221695283 * pow(kelvin_rgb.g, -0.0755148492);
+    if(kelvin_rgb.g < 0) kelvin_rgb.g = 0;
+    if(kelvin_rgb.g > 255) kelvin_rgb.g = 255;
+  }
+
+  if(temperature >= 66) {
+    kelvin_rgb.b = 255;
+  } 
+  else {
+    if(temperature <= 19) {
+      kelvin_rgb.b = 0;
+    } 
+    else {
+      kelvin_rgb.b = temperature - 10;
+      kelvin_rgb.b = 138.5177312231 * log(kelvin_rgb.b) - 305.0447927307;
+      if(kelvin_rgb.b < 0) kelvin_rgb.b = 0;
+      if(kelvin_rgb.b > 255) kelvin_rgb.b = 255;
+    }
+  }
+
+  return kelvin_rgb;
+}
+
+struct LifxPacket {
+  //frame
+  uint16_t size; //little endian
+  uint16_t protocol; //little endian
+  uint32_t reserved1;  //source
+
+  //frame address
+  byte bulbAddress[6];  //device mac
+  uint16_t reserved2; // mac padding
+  byte site[6];  // "reserved"
+   //bool res_required; // response message required
+   //bool ack_required; // acknowledgement message required
+   //bool reservedbits[6]; // 6 bits of reserved?
+  uint8_t reserved3;
+  uint8_t sequence; //message sequence number
+
+  //protocol header
+  uint64_t timestamp;
+  uint16_t packet_type; //little endian
+  uint16_t reserved4;
+  
+  byte data[128];
+  int data_size;
+};
+
+const unsigned int LifxProtocol_AllBulbsResponse = 21504; // 0x5400
+const unsigned int LifxProtocol_AllBulbsRequest  = 13312; // 0x3400
+const unsigned int LifxProtocol_BulbCommand      = 5120;  // 0x1400
+
+const unsigned int LifxPacketSize      = 36;
+const unsigned int LifxPort            = 56700;  // local port to listen on
+const unsigned int LifxBulbLabelLength = 32;
+const unsigned int LifxBulbTagsLength  = 8;
+const unsigned int LifxBulbTagLabelsLength = 32;
+
+// firmware versions, etc
+const unsigned int LifxBulbVendor  = 1;
+const unsigned int LifxBulbProduct = 1;
+const unsigned int LifxBulbVersion = 1;
+const unsigned int LifxFirmwareVersionMajor = 1;
+const unsigned int LifxFirmwareVersionMinor = 5;
+
+const byte SERVICE_UDP = 0x01;
+const byte SERVICE_TCP = 0x02;
+
+// packet types
+const byte GET_PAN_GATEWAY = 0x02;
+const byte PAN_GATEWAY = 0x03;
+
+const byte GET_WIFI_FIRMWARE_STATE = 0x12;
+const byte WIFI_FIRMWARE_STATE = 0x13;
+
+const byte GET_POWER_STATE = 0x14;
+const byte GET_POWER_STATE2 = 0x74;
+const byte SET_POWER_STATE = 0x75;
+const byte SET_POWER_STATE2 = 0x15;
+const byte POWER_STATE = 0x16;
+const byte POWER_STATE2 = 0x76;
+
+const byte GET_BULB_LABEL = 0x17;
+const byte SET_BULB_LABEL = 0x18;
+const byte BULB_LABEL = 0x19;
+
+const byte GET_VERSION_STATE = 0x20;
+const byte VERSION_STATE = 0x21;
+
+const byte GET_BULB_TAGS = 0x1a;
+const byte SET_BULB_TAGS = 0x1b;
+const byte BULB_TAGS = 0x1c;
+
+const byte GET_BULB_TAG_LABELS = 0x1d;
+const byte SET_BULB_TAG_LABELS = 0x1e;
+const byte BULB_TAG_LABELS = 0x1f;
+
+const byte GET_LIGHT_STATE = 0x65;
+const byte SET_LIGHT_STATE = 0x66;
+const byte LIGHT_STATUS = 0x6b;
+
+const byte SET_WAVEFORM = 0x67;
+const byte SET_WAVEFORM_OPTIONAL = 0x77;
+
+const byte GET_MESH_FIRMWARE_STATE = 0x0e;
+const byte MESH_FIRMWARE_STATE = 0x0f;
+
+
+#define EEPROM_BULB_LABEL_START 0 // 32 bytes long
+#define EEPROM_BULB_TAGS_START 32 // 8 bytes long
+#define EEPROM_BULB_TAG_LABELS_START 40 // 32 bytes long
+// future data for EEPROM will start at 72...
+
+#define EEPROM_CONFIG "AL1" // 3 byte identifier for this sketch's EEPROM settings
+#define EEPROM_CONFIG_START 253 // store EEPROM_CONFIG at the end of EEPROM
+
+// helpers
+#define SPACE " "
 
 class lifxUdp : public Component {
  public:
+  //char lightName = 'lifxtest';
   float maxColor = 255;
   // initial bulb values - warm white!
   long power_status = 65535;
@@ -19,14 +276,19 @@ class lifxUdp : public Component {
   long bri = 65535;
   long kel = 2000;
   long dim = 0;
+  uint8_t _sequence = 0x00;
+
   // Enter a MAC address and IP address for your device below.
   // The IP address will be dependent on your local network:
   
   // Test ESP hardware
   //4c:11:ae:0d:7f:fe
   //4c:11:ae:0d:1e:5a
-
+  // 80:7d:3a:2c:97:3b
+  
   byte mac[6] = { 0x4C, 0x11, 0xAE, 0x0D, 0x1E, 0x5A };
+  //byte mac[6] = { 0x80, 0x7d, 0x3a, 0x2c, 0x97, 0x3b };
+
   byte site_mac[6] = { 0x4C, 0x49, 0x46, 0x58, 0x56, 0x32 }; // spells out "LIFXV2" - version 2 of the app changes the site address to this...
 
   // label (name) for this bulb
@@ -51,7 +313,7 @@ class lifxUdp : public Component {
 			[&](AsyncUDPPacket &packet) {
 				float packetSize = packet.length();
 				if (packetSize) {  //ignore empty packets?  Needed?
-					incomingUDP(packet);
+					incomingUDP(packet, packetSize);
 				}
 			}
 		);
@@ -67,6 +329,16 @@ class lifxUdp : public Component {
   void eepromfake() {
 	// not supported properly in ESPHome yet.
 	return;
+	/*
+	debug_println(F("EEPROM dump:"));
+	
+	for (int i = 0; i < 256; i++) {
+		debug_print(EEPROM.read(i));
+		debug_print(SPACE);
+	}
+	
+	debug_println();
+	
 	
 	// read in settings from EEPROM (if they exist) for bulb label and tags
 	if (EEPROM.read(EEPROM_CONFIG_START) == EEPROM_CONFIG[0]
@@ -128,27 +400,39 @@ class lifxUdp : public Component {
 	}
 	
 	debug_println();
+	*/
 }
   
-  void incomingUDP(AsyncUDPPacket &packet) {
-	ESP_LOGD("LIFXUDP", "Packet arrived");
-	  
+  void incomingUDP(AsyncUDPPacket &packet, float packetSize) {
 	uint8_t *packetBuffer = packet.data();
+
+	ESP_LOGD("LIFXUDP", "Packet arrived");
+	debug_println();
+	debug_print(F("LIFX Packet Arrived ("));
+	debug_print(packetSize);
+	debug_print(F("): "));
+	for(int i=0; i<packetSize; i++){
+		if(packetBuffer[i] <= 0x0F) { debug_print(F("0"));}  // pad with zeros for proper alignment
+		debug_print(packetBuffer[i], HEX);
+		debug_print(SPACE);
+	}
+	debug_println();
 
 	LifxPacket request;
 	// stuff the packetBuffer into the lifxPacket request struct.
-	processRequest(packetBuffer, sizeof(packetBuffer), request);
+	processRequest(packetBuffer, packetSize, request);
 
-	//respond to the request. Now passing the original packet 
+	//respond to the request. Now passing the original packet for easier repsonse to packet
 	handleRequest(request, packet);
   }
   
 
 
-  void processRequest(byte *packetBuffer, int packetSize, LifxPacket &request) {
+  void processRequest(byte *packetBuffer, float packetSize, LifxPacket &request) {
 
 	request.size        = packetBuffer[0] + (packetBuffer[1] << 8); //little endian
 	request.protocol    = packetBuffer[2] + (packetBuffer[3] << 8); //little endian
+	// this is the source of the packet
 	request.reserved1   = packetBuffer[4] + packetBuffer[5] + packetBuffer[6] + packetBuffer[7];
 
 	byte bulbAddress[] = {
@@ -164,24 +448,29 @@ class lifxUdp : public Component {
 	memcpy(request.site, site, 6);
 
 	request.reserved3   = packetBuffer[22] + packetBuffer[23];
+	request.sequence	= _sequence++;
 	request.timestamp   = packetBuffer[24] + packetBuffer[25] + packetBuffer[26] + packetBuffer[27] +
 	  					  packetBuffer[28] + packetBuffer[29] + packetBuffer[30] + packetBuffer[31];
 	request.packet_type = packetBuffer[32] + (packetBuffer[33] << 8); //little endian
 	request.reserved4   = packetBuffer[34] + packetBuffer[35];
 
-	int i;
-	for (i = LifxPacketSize; i < packetSize; i++) {
-		request.data[i - LifxPacketSize] = packetBuffer[i];
+	debug_print(F("Payload size: "));
+	debug_println( packetSize );
+	int j=0;
+	for (unsigned int i = LifxPacketSize; i < packetSize; i++) {
+		//debug_println(i);
+		request.data[j++] = packetBuffer[i];
 	}
 
-	request.data_size = i;
+	request.data_size = j;
   }
 
 void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
-  debug_print(F("  Received packet type "));
+  debug_print(F("Received packet type "));
   debug_println(request.packet_type, HEX);
-
-  LifxPacket response;
+  printLifxPacket(request);
+  debug_println();
+ LifxPacket response;
   switch (request.packet_type) {
 
 	case GET_PAN_GATEWAY:
@@ -232,6 +521,26 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		kel = word(request.data[8], request.data[7]);
 
 		 for(int i=0; i<request.data_size; i++){
+		  debug_print(request.data[i], HEX);
+		  debug_print(SPACE);
+		}
+		debug_println();
+
+		setLight();
+	  }
+	  break;
+
+	case SET_WAVEFORM:
+	case SET_WAVEFORM_OPTIONAL:
+	  {
+		// set the light colors
+		hue = word(request.data[3], request.data[2]);
+		sat = word(request.data[5], request.data[4]);
+		bri = word(request.data[7], request.data[6]);
+		kel = word(request.data[9], request.data[8]);
+
+		 for(int i=0; i<request.data_size; i++){
+		  if(request.data[i] <= 0x0F) { debug_print(F("0"));}  // pad with zeros for proper alignment
 		  debug_print(request.data[i], HEX);
 		  debug_print(SPACE);
 		}
@@ -345,7 +654,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		  for (int i = 0; i < LifxBulbLabelLength; i++) {
 			if (bulbLabel[i] != request.data[i]) {
 			  bulbLabel[i] = request.data[i];
-			  EEPROM.write(EEPROM_BULB_LABEL_START + i, request.data[i]);
+			  //EEPROM.write(EEPROM_BULB_LABEL_START + i, request.data[i]);
 			}
 		  }
 		}
@@ -368,7 +677,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		  for (int i = 0; i < LifxBulbTagsLength; i++) {
 			if (bulbTags[i] != request.data[i]) {
 			  bulbTags[i] = lowByte(request.data[i]);
-			  EEPROM.write(EEPROM_BULB_TAGS_START + i, request.data[i]);
+			  //EEPROM.write(EEPROM_BULB_TAGS_START + i, request.data[i]);
 			}
 		  }
 		}
@@ -391,7 +700,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		  for (int i = 0; i < LifxBulbTagLabelsLength; i++) {
 			if (bulbTagLabels[i] != request.data[i]) {
 			  bulbTagLabels[i] = request.data[i];
-			  EEPROM.write(EEPROM_BULB_TAG_LABELS_START + i, request.data[i]);
+			  //EEPROM.write(EEPROM_BULB_TAG_LABELS_START + i, request.data[i]);
 			}
 		  }
 		}
@@ -430,17 +739,17 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		response.data_size = sizeof(VersionData);
 		sendPacket( response, packet );
 
-		/*
+		
 		// respond again to get command (real bulbs respond twice, slightly diff data (see below)
 		response.packet_type = VERSION_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
 		byte VersionData2[] = {
-		  lowByte(LifxVersionVendor), //vendor stays the same
-		  highByte(LifxVersionVendor),
+		  lowByte(LifxBulbVendor), //vendor stays the same
+		  highByte(LifxBulbVendor),
 		  0x00,
 		  0x00,
-		  lowByte(LifxVersionProduct*2), //product is 2, rather than 1
-		  highByte(LifxVersionProduct*2),
+		  lowByte(LifxBulbProduct*2), //product is 2, rather than 1
+		  highByte(LifxBulbProduct*2),
 		  0x00,
 		  0x00,
 		  0x00, //version is 0, rather than 1
@@ -452,7 +761,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		memcpy(response.data, VersionData2, sizeof(VersionData2));
 		response.data_size = sizeof(VersionData2);
 		sendPacket( response, packet );
-		*/
+		
 	  }
 	  break;
 
@@ -528,22 +837,20 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   debug_println();
   
   uint8_t _message[LIFX_MAX_PACKET_LENGTH];
-  int _packetLength;
-  uint8_t _sequenceNum;
+  int _packetLength = 0;
  
   memset(_message, 0, LIFX_MAX_PACKET_LENGTH);   // initialize _message with zeroes
   //_packetLength = LIFX_HEADER_LENGTH;
-  _sequenceNum = 0;
 
-    // size
+    // size uint16_t
   _message[_packetLength++] = (lowByte(LifxPacketSize + pkt.data_size));
   _message[_packetLength++] = (highByte(LifxPacketSize + pkt.data_size));
 
-  // protocol
+  // protocol uint16_t
   _message[_packetLength++] = (lowByte(pkt.protocol));
   _message[_packetLength++] = (highByte(pkt.protocol));
 
-  // reserved1
+  // reserved1 .... source multicast with all zeros
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
@@ -563,12 +870,14 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
 	_message[_packetLength++] = (lowByte(site_mac[i]));
   }
 
-  // reserved3
+  // reserved3: Flags - 6 bits reserved, 1bit ack required, 1bit res required
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
 
+  // sequence
+  _message[_packetLength++] = (pkt.sequence);
+
   // timestamp
-  _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
@@ -665,6 +974,7 @@ unsigned int sendTCPPacket(LifxPacket &pkt) {
 
 // print out a LifxPacket data structure as a series of hex bytes - used for DEBUG
 void printLifxPacket(LifxPacket &pkt) {
+  debug_print(F("Packet processed: "));
   // size
   debug_print(lowByte(LifxPacketSize + pkt.data_size), HEX);
   debug_print(SPACE);
@@ -749,6 +1059,7 @@ void printLifxPacket(LifxPacket &pkt) {
 }
 
 void setLight() {
+  int maxColor = 255;
   debug_print(F("Set light - "));
   debug_print(F("hue: "));
   debug_print(hue);
@@ -761,17 +1072,17 @@ void setLight() {
   debug_print(F(", power: "));
   debug_print(power_status);
   debug_println(power_status ? " (on)" : "(off)");
-  auto call = white_led->turn_on();
+  auto call = lifxtest->turn_on();
 
-  if (power_status) {
+  if (power_status && bri) {
 	int this_hue = map(hue, 0, 65535, 0, 767);
 	int this_sat = map(sat, 0, 65535, 0, 255);
 	int this_bri = map(bri, 0, 65535, 0, 255);
 	
 	// if we are setting a "white" colour (kelvin temp)
-	if (kel > 0 && this_sat < 1) {
+	if (this_sat < 1) { //removed condition: kel > 0  
 	  // convert kelvin to RGB
-	  rgb kelvin_rgb;
+	  rgbb kelvin_rgb;
 	  kelvin_rgb = kelvinToRGB(kel);
 
 	  // convert the RGB into HSV
@@ -786,19 +1097,40 @@ void setLight() {
 	uint8_t rgbColor[3];
 	hsb2rgb(this_hue, this_sat, this_bri, rgbColor);
 
-	uint8_t r = map(rgbColor[0], 0, 255, 0, 32);
-	uint8_t g = map(rgbColor[1], 0, 255, 0, 32);
-	uint8_t b = map(rgbColor[2], 0, 255, 0, 32);
+	debug_println(F("Colors:"));
+	debug_print(F(" Red:"));
+	debug_print(rgbColor[0]);
+	debug_print(F(" Green:"));
+	debug_print(rgbColor[1]);
+	debug_print(F(" Blue:"));
+	debug_print(rgbColor[2]);
+	debug_println();
+	//float r = map(rgbColor[0], 0, 255, 0, 1);
+	//float g = map(rgbColor[1], 0, 255, 0, 1);
+	//float b = map(rgbColor[2], 0, 255, 0, 1);
+	float r = (float)rgbColor[0] / maxColor;
+	float g = (float)rgbColor[1] / maxColor;
+	float b = (float)rgbColor[2] / maxColor;
 	
+	debug_println(F("Colors:"));
+	debug_print(F(" Red:"));
+	debug_print(r);
+	debug_print(F(" Green:"));
+	debug_print(g);
+	debug_print(F(" Blue:"));
+	debug_print(b);
+	debug_println();
+
 	// LIFXBulb.fadeHSB(this_hue, this_sat, this_bri);
 	////led_strip.setPixelColor (0, r, g, b);
 	call.set_rgb(r,g,b);
-	call.set_brightness(1);
+	call.set_brightness(1);//(bri/65535);
+	//call.set_color_temperature(1000000/kel);
 	call.set_transition_length(0);
 
   }
   else {
-	call = white_led->turn_off();
+	call = lifxtest->turn_off();
 	call.set_rgb(0,0,0);
 	call.set_brightness(0);
 	call.set_transition_length(0);
@@ -810,6 +1142,46 @@ void setLight() {
  ////led_strip.show ();
 }
 
+//#define DEG_TO_RAD(X) (M_PI*(X)/180)
+
+void hsi2rgbw(float H, float S, float I, int* rgbw) {
+  int r, g, b, w;
+  float cos_h, cos_1047_h;
+  H = fmod(H,360); // cycle H around to 0-360 degrees
+  H = 3.14159*H/(float)180; // Convert to radians.
+  S = S>0?(S<1?S:1):0; // clamp S and I to interval [0,1]
+  I = I>0?(I<1?I:1):0;
+  
+  if(H < 2.09439) {
+    cos_h = cos(H);
+    cos_1047_h = cos(1.047196667-H);
+    r = S*255*I/3*(1+cos_h/cos_1047_h);
+    g = S*255*I/3*(1+(1-cos_h/cos_1047_h));
+    b = 0;
+    w = 255*(1-S)*I;
+  } else if(H < 4.188787) {
+    H = H - 2.09439;
+    cos_h = cos(H);
+    cos_1047_h = cos(1.047196667-H);
+    g = S*255*I/3*(1+cos_h/cos_1047_h);
+    b = S*255*I/3*(1+(1-cos_h/cos_1047_h));
+    r = 0;
+    w = 255*(1-S)*I;
+  } else {
+    H = H - 4.188787;
+    cos_h = cos(H);
+    cos_1047_h = cos(1.047196667-H);
+    b = S*255*I/3*(1+cos_h/cos_1047_h);
+    r = S*255*I/3*(1+(1-cos_h/cos_1047_h));
+    g = 0;
+    w = 255*(1-S)*I;
+  }
+  
+  rgbw[0]=r;
+  rgbw[1]=g;
+  rgbw[2]=b;
+  rgbw[3]=w;
+}
 /******************************************************************************
  * accepts hue, saturation and brightness values and outputs three 8-bit color
  * values in an array (color[])
@@ -869,5 +1241,6 @@ void hsb2rgb(uint16_t index, uint8_t sat, uint8_t bright, uint8_t color[3])
   color[1]  = (uint8_t)g_temp;
   color[2] = (uint8_t)b_temp;
 }
+
 
 };
