@@ -247,6 +247,7 @@ const byte GET_LIGHT_STATE = 0x65;
 const byte SET_LIGHT_STATE = 0x66;
 const byte LIGHT_STATUS = 0x6b;
 
+const byte SET_WAVEFORM = 0x67;
 const byte SET_WAVEFORM_OPTIONAL = 0x77;
 
 const byte GET_MESH_FIRMWARE_STATE = 0x0e;
@@ -312,7 +313,7 @@ class lifxUdp : public Component {
 			[&](AsyncUDPPacket &packet) {
 				float packetSize = packet.length();
 				if (packetSize) {  //ignore empty packets?  Needed?
-					incomingUDP(packet);
+					incomingUDP(packet, packetSize);
 				}
 			}
 		);
@@ -402,25 +403,36 @@ class lifxUdp : public Component {
 	*/
 }
   
-  void incomingUDP(AsyncUDPPacket &packet) {
-	ESP_LOGD("LIFXUDP", "Packet arrived");
-	  
+  void incomingUDP(AsyncUDPPacket &packet, float packetSize) {
 	uint8_t *packetBuffer = packet.data();
+
+	ESP_LOGD("LIFXUDP", "Packet arrived");
+	debug_println();
+	debug_print(F("LIFX Packet Arrived ("));
+	debug_print(packetSize);
+	debug_print(F("): "));
+	for(int i=0; i<packetSize; i++){
+		if(packetBuffer[i] <= 0x0F) { debug_print(F("0"));}  // pad with zeros for proper alignment
+		debug_print(packetBuffer[i], HEX);
+		debug_print(SPACE);
+	}
+	debug_println();
 
 	LifxPacket request;
 	// stuff the packetBuffer into the lifxPacket request struct.
-	processRequest(packetBuffer, sizeof(packetBuffer), request);
+	processRequest(packetBuffer, packetSize, request);
 
-	//respond to the request. Now passing the original packet 
+	//respond to the request. Now passing the original packet for easier repsonse to packet
 	handleRequest(request, packet);
   }
   
 
 
-  void processRequest(byte *packetBuffer, int packetSize, LifxPacket &request) {
+  void processRequest(byte *packetBuffer, float packetSize, LifxPacket &request) {
 
 	request.size        = packetBuffer[0] + (packetBuffer[1] << 8); //little endian
 	request.protocol    = packetBuffer[2] + (packetBuffer[3] << 8); //little endian
+	// this is the source of the packet
 	request.reserved1   = packetBuffer[4] + packetBuffer[5] + packetBuffer[6] + packetBuffer[7];
 
 	byte bulbAddress[] = {
@@ -442,19 +454,23 @@ class lifxUdp : public Component {
 	request.packet_type = packetBuffer[32] + (packetBuffer[33] << 8); //little endian
 	request.reserved4   = packetBuffer[34] + packetBuffer[35];
 
-	int i;
-	for (i = LifxPacketSize; i < packetSize; i++) {
-		request.data[i - LifxPacketSize] = packetBuffer[i];
+	debug_print(F("Payload size: "));
+	debug_println( packetSize );
+	int j=0;
+	for (unsigned int i = LifxPacketSize; i < packetSize; i++) {
+		//debug_println(i);
+		request.data[j++] = packetBuffer[i];
 	}
 
-	request.data_size = i;
+	request.data_size = j;
   }
 
 void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
-  debug_print(F("  Received packet type "));
+  debug_print(F("Received packet type "));
   debug_println(request.packet_type, HEX);
   printLifxPacket(request);
-  LifxPacket response;
+  debug_println();
+ LifxPacket response;
   switch (request.packet_type) {
 
 	case GET_PAN_GATEWAY:
@@ -514,15 +530,17 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 	  }
 	  break;
 
+	case SET_WAVEFORM:
 	case SET_WAVEFORM_OPTIONAL:
 	  {
 		// set the light colors
-		hue = word(request.data[2], request.data[2]);
-		sat = word(request.data[4], request.data[4]);
-		bri = word(request.data[6], request.data[5]);
-		kel = word(request.data[8], request.data[8]);
+		hue = word(request.data[3], request.data[2]);
+		sat = word(request.data[5], request.data[4]);
+		bri = word(request.data[7], request.data[6]);
+		kel = word(request.data[9], request.data[8]);
 
 		 for(int i=0; i<request.data_size; i++){
+		  if(request.data[i] <= 0x0F) { debug_print(F("0"));}  // pad with zeros for proper alignment
 		  debug_print(request.data[i], HEX);
 		  debug_print(SPACE);
 		}
@@ -956,6 +974,7 @@ unsigned int sendTCPPacket(LifxPacket &pkt) {
 
 // print out a LifxPacket data structure as a series of hex bytes - used for DEBUG
 void printLifxPacket(LifxPacket &pkt) {
+  debug_print(F("Packet processed: "));
   // size
   debug_print(lowByte(LifxPacketSize + pkt.data_size), HEX);
   debug_print(SPACE);
@@ -1061,7 +1080,7 @@ void setLight() {
 	int this_bri = map(bri, 0, 65535, 0, 255);
 	
 	// if we are setting a "white" colour (kelvin temp)
-	//if (kel > 0 && this_sat < 1) {
+	if (this_sat < 1) { //removed condition: kel > 0  
 	  // convert kelvin to RGB
 	  rgbb kelvin_rgb;
 	  kelvin_rgb = kelvinToRGB(kel);
@@ -1073,7 +1092,7 @@ void setLight() {
 	  // set the new values ready to go to the bulb (brightness does not change, just hue and saturation)
 	  this_hue = map(kelvin_hsv.h, 0, 359, 0, 767);
 	  this_sat = map(kelvin_hsv.s * 1000, 0, 1000, 0, 255); //multiply the sat by 1000 so we can map the percentage value returned by rgb2hsv
-	//}
+	}
 
 	uint8_t rgbColor[3];
 	hsb2rgb(this_hue, this_sat, this_bri, rgbColor);
