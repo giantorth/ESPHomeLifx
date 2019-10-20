@@ -9,6 +9,7 @@
  #define debug_println(x, ...) Serial.println (x, ## __VA_ARGS__)
 #else
  #define debug_print(x, ...)
+ #define debug_print(x, ...) 
  #define debug_println(x, ...)
 #endif
 
@@ -173,7 +174,7 @@ rgbb kelvinToRGB(long kelvin) {
 }
 
 struct LifxPacket {
-  //frame
+  ////frame
   uint16_t size; //little endian
   uint16_t protocol; //little endian
   byte source[4];  //source
@@ -188,7 +189,7 @@ struct LifxPacket {
   uint8_t reserved3;
   uint8_t sequence; //message sequence number
 
-  //protocol header
+  ////protocol header
   uint64_t timestamp;
   uint16_t packet_type; //little endian
   uint16_t reserved4;
@@ -201,13 +202,12 @@ const unsigned int LifxProtocol_AllBulbsResponse = 21504; // 0x5400
 const unsigned int LifxProtocol_AllBulbsRequest  = 13312; // 0x3400
 const unsigned int LifxProtocol_BulbCommand      = 5120;  // 0x1400
 
-const unsigned int LifxPacketSize      = 36;
-const unsigned int LifxPort            = 56700;  // local port to listen on
-const unsigned int LifxBulbLabelLength = 32;
-const unsigned int LifxBulbTagsLength  = 8;
-const unsigned int LifxBulbTagLabelsLength = 32;
-const unsigned int LIFX_HEADER_LENGTH = 36;
-const unsigned int LIFX_MAX_PACKET_LENGTH = 53;
+const unsigned int LifxPacketSize      		= 36;
+const unsigned int LifxPort            		= 56700;  // local port to listen on
+const unsigned int LifxBulbLabelLength 		= 32;
+const unsigned int LifxBulbTagsLength  		= 8;
+const unsigned int LifxBulbTagLabelsLength 	= 32;
+const unsigned int LIFX_MAX_PACKET_LENGTH 	= 53;
 
 // firmware versions, etc
 const unsigned int LifxBulbVendor  = 1;
@@ -240,6 +240,12 @@ const byte BULB_LABEL = 0x19;
 const byte GET_VERSION_STATE = 0x20;
 const byte VERSION_STATE = 0x21;
 
+const byte GET_LOCATION_STATE = 0x30;
+const byte LOCATION_STATE = 0x50;
+
+const byte GET_GROUP_STATE = 0x33;
+const byte GROUP_STATE = 0x25;
+
 const byte GET_BULB_TAGS = 0x1a;
 const byte SET_BULB_TAGS = 0x1b;
 const byte BULB_TAGS = 0x1c;
@@ -258,7 +264,7 @@ const byte SET_WAVEFORM_OPTIONAL = 0x77;
 const byte GET_MESH_FIRMWARE_STATE = 0x0e;
 const byte MESH_FIRMWARE_STATE = 0x0f;
 
-
+// unused eeprom defines, not working under esphome yet
 #define EEPROM_BULB_LABEL_START 0 // 32 bytes long
 #define EEPROM_BULB_TAGS_START 32 // 8 bytes long
 #define EEPROM_BULB_TAG_LABELS_START 40 // 32 bytes long
@@ -274,12 +280,25 @@ class lifxUdp: public Component {
  public:
   float maxColor = 255;
   // initial bulb values - warm white!
-  long power_status = 65535;
-  long hue = 0;
-  long sat = 0;
-  long bri = 65535;
-  long kel = 2000;
+  uint16_t power_status = 65535;
+  uint16_t hue = 0;
+  uint16_t sat = 0;
+  uint16_t bri = 65535;
+  uint16_t kel = 2000;
+  byte trans = 0;
+  uint32_t period = 0;
+  float cycles = 0;
+  int skew_ratio = 0; //signed 16 bit int
+  uint8_t waveform = 0;
+  uint8_t set_hue = 1;
+  uint8_t set_sat = 1;
+  uint8_t set_bri = 1;
+  uint8_t set_kel = 1;
+  bool UPDATING = 0;
+
+
   long dim = 0;
+
   uint32_t dur = 0;
   uint8_t _sequence = 0x00;
 
@@ -287,7 +306,7 @@ class lifxUdp: public Component {
   byte site_mac[6] = { 0x4C, 0x49, 0x46, 0x58, 0x56, 0x32 }; // spells out "LIFXV2" - version 2 of the app changes the site address to this...
 
   // label (name) for this bulb
-  char bulbLabel[LifxBulbLabelLength];  // = lifxLightName; //"LED lamp";
+  char bulbLabel[LifxBulbLabelLength]; 
 
   // tags for this bulb
   char bulbTags[LifxBulbTagsLength] = {
@@ -303,7 +322,7 @@ class lifxUdp: public Component {
 
   void beginUDP( byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] ) {
 	// real bulbs all have a mac starting with D0:73:D5:
-	for(int i=0; i<sizeof(bulbMac); i++){
+	for(int i=0; i<6; i++){
 		mac[i] = bulbMac[i];
 	}
 	debug_print(F("Setting Light Name: "));
@@ -537,14 +556,43 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 	  break;
 
 	case SET_WAVEFORM:
-	case SET_WAVEFORM_OPTIONAL:
-	  {
-		// set the light colors.  Everything is shifted over one byte from standard light messages
+	{
 		hue = word(request.data[3], request.data[2]);
 		sat = word(request.data[5], request.data[4]);
 		bri = word(request.data[7], request.data[6]);
 		kel = word(request.data[9], request.data[8]);
-		// not supported, all the waveform and optional flags
+		// duration should be multiplied by cycles in theory but ignored for now
+		byte dur[] = {request.data[13], request.data[12], request.data[11], request.data[10] };
+		setLight();
+	}
+	break;
+	
+	case SET_WAVEFORM_OPTIONAL:
+	  {
+		if( request.data[21] ) { // ignore hue?
+			debug_print(F(" set hue "));
+			hue = word(request.data[3], request.data[2]);
+		}
+		if( request.data[22] ) { // ignore sat?
+			debug_print(F(" set sat "));
+			sat = word(request.data[5], request.data[4]);
+		}		
+		if( request.data[23] ) { // ignore bri?
+			debug_print(F(" set bri "));
+			bri = word(request.data[7], request.data[6]);
+		}
+		if( request.data[24] ) { // ignore kel?
+			debug_print(F(" set kel "));
+			kel = word(request.data[9], request.data[8]);
+		}
+		byte dur[] = {request.data[13], request.data[12], request.data[11], request.data[10] };
+
+		// period uint32_t
+		// cycles float
+		// skew_ratio uint16_t
+		// waveform uint8_t
+
+		// not supported, all the waveform flags
 		setLight();
 	  }
 	  break;
@@ -554,7 +602,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 	  {
 		// send the light's state
 		response.packet_type = LIGHT_STATUS;
-		response.protocol = LifxProtocol_AllBulbsResponse;
+		response.protocol = LifxProtocol_BulbCommand;  // home assistnat crashes if you use all bulb response here
 		byte StateData[] = {
 		  lowByte(hue),  //hue
 		  highByte(hue), //hue
@@ -713,7 +761,18 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 	  }
 	  break;
 
-
+	case GET_LOCATION_STATE:
+	  {
+	  response.packet_type = LOCATION_STATE;
+	  response.protocol = LifxProtocol_AllBulbsResponse;
+	  break;
+	  }
+	case GET_GROUP_STATE:
+	{
+	  response.packet_type = GROUP_STATE;
+	  response.protocol = LifxProtocol_AllBulbsResponse;
+	  break;
+	}
 	case GET_VERSION_STATE:
 	  {
 		// respond to get command
@@ -838,7 +897,6 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   int _packetLength = 0;
  
   memset(_message, 0, LIFX_MAX_PACKET_LENGTH);   // initialize _message with zeroes
-  //_packetLength = LIFX_HEADER_LENGTH;
 
   //// FRAME 
   _message[_packetLength++] = (lowByte(LifxPacketSize + pkt.data_size));
@@ -914,7 +972,11 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   return LifxPacketSize + pkt.data_size;
 }
 
+// this function sets the lights based on values in the globals
+// TODO: refactor to take parameters instead of globals 
 void setLight() {
+  if( UPDATING == 1) { return; }  // cheesey update blocker
+  else { UPDATING = 1; }
   int maxColor = 255;
   debug_print(F("Set light - "));
   debug_print(F("hue: "));
@@ -933,13 +995,12 @@ void setLight() {
   //auto call = lifx->turn_on();
 
   if (power_status && bri) {
-	
+	float bright = (float)bri/65535;
 	// if we are setting a "white" colour (kelvin temp)
 	if (sat < 1) { //removed condition: kel > 0, app seems to always send kelvin but sets saturation to 0
 	  auto callW = white_led->turn_on();
 	  auto callC = color_led->turn_off();
-	  float bright = (float)bri/65535;
-      uint32_t mireds = (100000 / (kel/10)*10);
+      uint16_t mireds = 1000000 / kel;  
 
       // convert kelvin to RGB
 	  //rgbb kelvin_rgb;
@@ -978,7 +1039,7 @@ void setLight() {
 		float b = (float)rgbColor[2] / maxColor;
 		// LIFXBulb.fadeHSB(this_hue, this_sat, this_bri);
 		callC.set_rgb(r,g,b);
-		callC.set_brightness(1);//(bri/65535);
+		callC.set_brightness(bright);//(bri/65535);
 		callC.set_transition_length(0);
 		callW.perform();
 		callC.perform();
@@ -993,7 +1054,7 @@ void setLight() {
 	call2.perform();
 	// LIFXBulb.fadeHSB(0, 0, 0);
   }
-  dur = 0;
+  UPDATING = 0;
 }
 
 //#define DEG_TO_RAD(X) (M_PI*(X)/180)
