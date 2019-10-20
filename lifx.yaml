@@ -25,7 +25,8 @@ api:
 
 ota:
   password: !secret ota
-  
+
+#this is for my bench test light, your pins may vary
 output:
   - platform: esp8266_pwm
     pin: D1
@@ -69,17 +70,20 @@ output:
 
 light:
   - platform: rgb
-    id: lifx
-    name: "lifx"
-    #cold_white: P1
-    #warm_white: P2
-    #cold_white_color_temperature: 6500 K
-    #warm_white_color_temperature: 2700 K
+    id: color_led
+    name: "color_led"
     red: P7
     green: P6
     blue: P5
     #default_transition_length: 0.4s
     #gamma_correct: 0.8
+  - platform: cwww
+    id: white_led
+    name: "white_led"
+    cold_white: P1
+    warm_white: P2
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
     
 custom_component:
 - lambda: |-

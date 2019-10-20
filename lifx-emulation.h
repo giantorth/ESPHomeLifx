@@ -938,7 +938,7 @@ void setLight() {
   debug_print(F(", power: "));
   debug_print(power_status);
   debug_println(power_status ? " (on)" : "(off)");
-  auto call = lifx->turn_on();
+  //auto call = lifx->turn_on();
 
   if (power_status && bri) {
 	int this_hue = map(hue, 0, 65535, 0, 767);
@@ -946,22 +946,26 @@ void setLight() {
 	int this_bri = map(bri, 0, 65535, 0, 255);
 	
 	// if we are setting a "white" colour (kelvin temp)
-	if (this_sat < 1) { //removed condition: kel > 0  
+	if (this_sat < 1) { //removed condition: kel > 0, app seems to always send kelvin but sets saturation to 0
 	  // convert kelvin to RGB
-	  rgbb kelvin_rgb;
-	  kelvin_rgb = kelvinToRGB(kel);
+	  //rgbb kelvin_rgb;
+	  //kelvin_rgb = kelvinToRGB(kel);
 
 	  // convert the RGB into HSV
-	  hsv kelvin_hsv;
-	  kelvin_hsv = rgb2hsv(kelvin_rgb);
+	  //hsv kelvin_hsv;
+	  //kelvin_hsv = rgb2hsv(kelvin_rgb);
 
 	  // set the new values ready to go to the bulb (brightness does not change, just hue and saturation)
-	  this_hue = map(kelvin_hsv.h, 0, 359, 0, 767);
-	  this_sat = map(kelvin_hsv.s * 1000, 0, 1000, 0, 255); //multiply the sat by 1000 so we can map the percentage value returned by rgb2hsv
+	  //this_hue = map(kelvin_hsv.h, 0, 359, 0, 767);
+	  //this_sat = map(kelvin_hsv.s * 1000, 0, 1000, 0, 255); //multiply the sat by 1000 so we can map the percentage value returned by rgb2hsv
+	  auto call = white_led->turn_on();
+	  call.set_color_temperature(1000000/kel);
+	  call.set_brightness((float)bri/maxColor);
+	} else {
+	  auto call = color_led->turn_on();
+	  uint8_t rgbColor[3];
+	  hsb2rgb(this_hue, this_sat, this_bri, rgbColor);
 	}
-
-	uint8_t rgbColor[3];
-	hsb2rgb(this_hue, this_sat, this_bri, rgbColor);
 
 	debug_println(F("Colors:"));
 	debug_print(F(" Red:"));
@@ -971,38 +975,24 @@ void setLight() {
 	debug_print(F(" Blue:"));
 	debug_print(rgbColor[2]);
 	debug_println();
-	//float r = map(rgbColor[0], 0, 255, 0, 1);
-	//float g = map(rgbColor[1], 0, 255, 0, 1);
-	//float b = map(rgbColor[2], 0, 255, 0, 1);
 	float r = (float)rgbColor[0] / maxColor;
 	float g = (float)rgbColor[1] / maxColor;
 	float b = (float)rgbColor[2] / maxColor;
-	
-	debug_println(F("Colors:"));
-	debug_print(F(" Red:"));
-	debug_print(r);
-	debug_print(F(" Green:"));
-	debug_print(g);
-	debug_print(F(" Blue:"));
-	debug_print(b);
-	debug_println();
 
 	// LIFXBulb.fadeHSB(this_hue, this_sat, this_bri);
-	////led_strip.setPixelColor (0, r, g, b);
 	call.set_rgb(r,g,b);
 	call.set_brightness(1);//(bri/65535);
-	//call.set_color_temperature(1000000/kel);
 	call.set_transition_length(0);
 
   }
   else {
-	call = lifx->turn_off();
+	call = color_led->turn_off();
 	call.set_rgb(0,0,0);
 	call.set_brightness(0);
 	call.set_transition_length(0);
-
+	call2 = white_led->turn_off();
+	call2.perform();
 	// LIFXBulb.fadeHSB(0, 0, 0);
-	////led_strip.setPixelColor (0, 0, 0, 0);
   }
   call.perform();
  ////led_strip.show ();
