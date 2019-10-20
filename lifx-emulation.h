@@ -1,9 +1,7 @@
-//#include <EEPROM.h>
 #include "esphome.h"
 #include <ESPAsyncUDP.h>
-#include <ESPAsyncTCP.h>
-//#include "color.h"
 
+// if you turn off debug printing the whole thing crashes like crazy...
 #define DEBUG
 
 #ifdef DEBUG
@@ -14,8 +12,6 @@
  #define debug_println(x, ...)
 #endif
 
-#define LIFX_HEADER_LENGTH 36
-#define LIFX_MAX_PACKET_LENGTH 53
 /* Source: http://stackoverflow.com/questions/3018313/algorithm-to-convert-rgb-to-hsv-and-hsv-to-rgb-in-range-0-255-for-both */
 
 struct rgbb {
@@ -210,8 +206,8 @@ const unsigned int LifxPort            = 56700;  // local port to listen on
 const unsigned int LifxBulbLabelLength = 32;
 const unsigned int LifxBulbTagsLength  = 8;
 const unsigned int LifxBulbTagLabelsLength = 32;
-#define LIFX_HEADER_LENGTH 36
-#define LIFX_MAX_PACKET_LENGTH 53
+const unsigned int LIFX_HEADER_LENGTH 36
+const unsigned int LIFX_MAX_PACKET_LENGTH 53
 
 // firmware versions, etc
 const unsigned int LifxBulbVendor  = 1;
@@ -286,17 +282,7 @@ class lifxUdp: public Component {
   long dim = 0;
   uint8_t _sequence = 0x00;
 
-  // Enter a MAC address and IP address for your device below.
-  // The IP address will be dependent on your local network:
-  
-  // Test ESP hardware
-  //4c:11:ae:0d:7f:fe
-  //4c:11:ae:0d:1e:5a
-  // 80:7d:3a:2c:97:3b
   byte mac[6];
-  //byte mac[6] = { 0x4C, 0x11, 0xAE, 0x0D, 0x1E, 0x5A };
-  //byte mac[6] = { 0x80, 0x7d, 0x3a, 0x2c, 0x97, 0x3b };
-
   byte site_mac[6] = { 0x4C, 0x49, 0x46, 0x58, 0x56, 0x32 }; // spells out "LIFXV2" - version 2 of the app changes the site address to this...
 
   // label (name) for this bulb
@@ -941,13 +927,15 @@ void setLight() {
   //auto call = lifx->turn_on();
 
   if (power_status && bri) {
-	int this_hue = map(hue, 0, 65535, 0, 767);
-	int this_sat = map(sat, 0, 65535, 0, 255);
-	int this_bri = map(bri, 0, 65535, 0, 255);
 	
 	// if we are setting a "white" colour (kelvin temp)
-	if (this_sat < 1) { //removed condition: kel > 0, app seems to always send kelvin but sets saturation to 0
-	  // convert kelvin to RGB
+	if (sat < 1) { //removed condition: kel > 0, app seems to always send kelvin but sets saturation to 0
+	  auto callW = white_led->turn_on();
+	  auto callC = color_led->turn_off();
+	  float bright = (float)bri/65535;
+      uint32_t mireds = (100000 / (kel/10)*10);
+
+      // convert kelvin to RGB
 	  //rgbb kelvin_rgb;
 	  //kelvin_rgb = kelvinToRGB(kel);
 
@@ -958,44 +946,46 @@ void setLight() {
 	  // set the new values ready to go to the bulb (brightness does not change, just hue and saturation)
 	  //this_hue = map(kelvin_hsv.h, 0, 359, 0, 767);
 	  //this_sat = map(kelvin_hsv.s * 1000, 0, 1000, 0, 255); //multiply the sat by 1000 so we can map the percentage value returned by rgb2hsv
-	  auto call = white_led->turn_on();
-	  call.set_color_temperature(1000000/kel);
-	  call.set_brightness((float)bri/maxColor);
+	  callW.set_color_temperature(mireds);
+	  callW.set_brightness(bright);
+	  callC.perform();
+	  callW.perform();
 	} else {
-	  auto call = color_led->turn_on();
-	  uint8_t rgbColor[3];
-	  hsb2rgb(this_hue, this_sat, this_bri, rgbColor);
+	int this_hue = map(hue, 0, 65535, 0, 767);
+	int this_sat = map(sat, 0, 65535, 0, 255);
+	int this_bri = map(bri, 0, 65535, 0, 255);
+	auto callW = white_led->turn_off();
+	auto callC = color_led->turn_on();
+		uint8_t rgbColor[3];
+		hsb2rgb(this_hue, this_sat, this_bri, rgbColor);
+		debug_println(F("Colors:"));
+		debug_print(F(" Red:"));
+		debug_print(rgbColor[0]);
+		debug_print(F(" Green:"));
+		debug_print(rgbColor[1]);
+		debug_print(F(" Blue:"));
+		debug_print(rgbColor[2]);
+		debug_println();
+		float r = (float)rgbColor[0] / maxColor;
+		float g = (float)rgbColor[1] / maxColor;
+		float b = (float)rgbColor[2] / maxColor;
+		// LIFXBulb.fadeHSB(this_hue, this_sat, this_bri);
+		callC.set_rgb(r,g,b);
+		callC.set_brightness(1);//(bri/65535);
+		callC.set_transition_length(0);
+		callW.perform();
+		callC.perform();
 	}
-
-	debug_println(F("Colors:"));
-	debug_print(F(" Red:"));
-	debug_print(rgbColor[0]);
-	debug_print(F(" Green:"));
-	debug_print(rgbColor[1]);
-	debug_print(F(" Blue:"));
-	debug_print(rgbColor[2]);
-	debug_println();
-	float r = (float)rgbColor[0] / maxColor;
-	float g = (float)rgbColor[1] / maxColor;
-	float b = (float)rgbColor[2] / maxColor;
-
-	// LIFXBulb.fadeHSB(this_hue, this_sat, this_bri);
-	call.set_rgb(r,g,b);
-	call.set_brightness(1);//(bri/65535);
-	call.set_transition_length(0);
-
-  }
-  else {
-	call = color_led->turn_off();
+  }  else { // shit be off, yo
+	auto call = color_led->turn_off();
 	call.set_rgb(0,0,0);
 	call.set_brightness(0);
 	call.set_transition_length(0);
-	call2 = white_led->turn_off();
+ 	call.perform();
+	auto call2 = white_led->turn_off();
 	call2.perform();
 	// LIFXBulb.fadeHSB(0, 0, 0);
   }
-  call.perform();
- ////led_strip.show ();
 }
 
 //#define DEG_TO_RAD(X) (M_PI*(X)/180)
