@@ -8,7 +8,6 @@
  #define debug_print(x, ...) Serial.print (x, ## __VA_ARGS__)
  #define debug_println(x, ...) Serial.println (x, ## __VA_ARGS__)
 #else
- #define debug_print(x, ...)
  #define debug_print(x, ...) 
  #define debug_println(x, ...)
 #endif
@@ -173,13 +172,14 @@ rgbb kelvinToRGB(long kelvin) {
   return kelvin_rgb;
 }
 
+// this structure doesn't support the response/ack packets properly and needs updated.
 struct LifxPacket {
   ////frame
   uint16_t size; //little endian
   uint16_t protocol; //little endian
   byte source[4];  //source
 
-  //frame address
+  ////frame address
   byte bulbAddress[6];  //device mac
   uint16_t reserved2; // mac padding
   byte site[6];  // "reserved"
