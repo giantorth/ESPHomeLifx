@@ -1,6 +1,9 @@
 # ESPHomeLifx
 Port of Lifx protocol to ESPHome.io firmware.
 
+!!! Warning !!!
+There is a bug where this will crash immidately if it is unable to write to serial. Flash this to sealed devices at your own risk!!
+
 Instructions:
 - A sample bulb YAML is provided for ESPHome configuration
   - Update light name in custom component lambda at bottom of config
