@@ -206,13 +206,13 @@ const unsigned int LifxPort            = 56700;  // local port to listen on
 const unsigned int LifxBulbLabelLength = 32;
 const unsigned int LifxBulbTagsLength  = 8;
 const unsigned int LifxBulbTagLabelsLength = 32;
-const unsigned int LIFX_HEADER_LENGTH 36
-const unsigned int LIFX_MAX_PACKET_LENGTH 53
+const unsigned int LIFX_HEADER_LENGTH = 36;
+const unsigned int LIFX_MAX_PACKET_LENGTH = 53;
 
 // firmware versions, etc
 const unsigned int LifxBulbVendor  = 1;
 const unsigned int LifxBulbProduct = 1;
-const unsigned int LifxBulbVersion = 1;
+const unsigned int LifxBulbVersion = 512;
 const unsigned int LifxFirmwareVersionMajor = 1;
 const unsigned int LifxFirmwareVersionMinor = 5;
 
@@ -280,6 +280,7 @@ class lifxUdp: public Component {
   long bri = 65535;
   long kel = 2000;
   long dim = 0;
+  uint32_t dur = 0;
   uint8_t _sequence = 0x00;
 
   byte mac[6];
@@ -301,6 +302,7 @@ class lifxUdp: public Component {
   }
 
   void beginUDP( byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] ) {
+	// real bulbs all have a mac starting with D0:73:D5:
 	for(int i=0; i<sizeof(bulbMac); i++){
 		mac[i] = bulbMac[i];
 	}
@@ -528,6 +530,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		sat = word(request.data[4], request.data[3]);
 		bri = word(request.data[6], request.data[5]);
 		kel = word(request.data[8], request.data[7]);
+		byte dur[] = {request.data[12], request.data[11], request.data[10], request.data[9] };
 
 		setLight();
 	  }
@@ -735,7 +738,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		response.data_size = sizeof(VersionData);
 		sendPacket( response, packet );
 
-		
+		/*
 		// respond again to get command (real bulbs respond twice, slightly diff data (see below)
 		response.packet_type = VERSION_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
@@ -756,7 +759,8 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 
 		memcpy(response.data, VersionData2, sizeof(VersionData2));
 		response.data_size = sizeof(VersionData2);
-		sendPacket( response, packet );
+		*/
+		//sendPacket( response, packet );
 		
 	  }
 	  break;
@@ -921,6 +925,8 @@ void setLight() {
   debug_print(bri);
   debug_print(F(", kel: "));
   debug_print(kel);
+  debug_print(F(", dur: "));
+  debug_print(dur);
   debug_print(F(", power: "));
   debug_print(power_status);
   debug_println(power_status ? " (on)" : "(off)");
@@ -948,6 +954,7 @@ void setLight() {
 	  //this_sat = map(kelvin_hsv.s * 1000, 0, 1000, 0, 255); //multiply the sat by 1000 so we can map the percentage value returned by rgb2hsv
 	  callW.set_color_temperature(mireds);
 	  callW.set_brightness(bright);
+	  callW.set_transition_length(dur);
 	  callC.perform();
 	  callW.perform();
 	} else {
@@ -980,12 +987,13 @@ void setLight() {
 	auto call = color_led->turn_off();
 	call.set_rgb(0,0,0);
 	call.set_brightness(0);
-	call.set_transition_length(0);
+	call.set_transition_length(dur);
  	call.perform();
 	auto call2 = white_led->turn_off();
 	call2.perform();
 	// LIFXBulb.fadeHSB(0, 0, 0);
   }
+  dur = 0;
 }
 
 //#define DEG_TO_RAD(X) (M_PI*(X)/180)
