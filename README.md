@@ -4,8 +4,8 @@ Port of Lifx protocol to ESPHome.io firmware.
 Instructions:
 - A sample bulb YAML is provided for ESPHome configuration
   - Update light name in custom component lambda at bottom of config
+  - Code expects you to have a 'white_led' and a 'color_led' device to control
 - place lifx-emulation.h in your esphome folder (where all configs are located)
-- ESPHome light component must be named "lifx"
 
 Working:
 - Can detect and control HSBK values from offical Lifx app
@@ -13,11 +13,11 @@ Working:
 - Detected by lifxlan python library
 
 Lots of work still todo:
+- Home Assistant unable to detect bulbs, need to get wireshark involved
 - Fake current firmware versions so app doesn't want to upgrade
-- app flickers when checking bulb status
+- app flickers when checking bulb status occasionally
 - Somehow automatically read esphome name so it doesn't need to be set in lamba variable
-- Code written for RGB led only
-- Sequence number not incrementing
+- Packet sequence number not incrementing
 
 Debugging:
 - Serial console will output all in/out packet contents in HEX
