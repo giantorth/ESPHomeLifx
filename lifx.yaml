@@ -75,8 +75,7 @@ light:
     red: P7
     green: P6
     blue: P5
-    #default_transition_length: 0.4s
-    #gamma_correct: 0.8
+    
   - platform: cwww
     id: white_led
     name: "white_led"
@@ -87,8 +86,8 @@ light:
     
 custom_component:
 - lambda: |-
+    char lightName[32] = "YOUR LIGHT NAME HERE";  // max 32 characters
     byte mac[6];
-    char lightName[32] = "WtfLightTest";
     WiFi.macAddress(mac);
     auto lifxUdpSupport = new lifxUdp();
     lifxUdpSupport->beginUDP(mac, lightName);
