@@ -207,7 +207,7 @@ const unsigned int LifxPort            		= 56700;  // local port to listen on
 const unsigned int LifxBulbLabelLength 		= 32;
 const unsigned int LifxBulbTagsLength  		= 8;
 const unsigned int LifxBulbTagLabelsLength 	= 32;
-const unsigned int LIFX_MAX_PACKET_LENGTH 	= 53;
+#define LIFX_MAX_PACKET_LENGTH 53; //debugging?
 
 // firmware versions, etc
 const unsigned int LifxBulbVendor  = 1;
