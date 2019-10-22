@@ -2,7 +2,7 @@
 Port of Lifx protocol to ESPHome.io firmware.
 
 !!! Warning !!!
-There is a bug where this will crash immidately if it is unable to write to serial. Flash this to sealed devices at your own risk!!
+I have bricked a sealed bulb with this firmware.  Flashing to sealed devices is at your own risk!
 
 Instructions:
 - A sample bulb YAML is provided for ESPHome configuration
