@@ -207,7 +207,8 @@ const unsigned int LifxPort            		= 56700;  // local port to listen on
 const unsigned int LifxBulbLabelLength 		= 32;
 const unsigned int LifxBulbTagsLength  		= 8;
 const unsigned int LifxBulbTagLabelsLength 	= 32;
-const unsigned int LIFX_MAX_PACKET_LENGTH 	= 53;
+#define LIFX_MAX_PACKET_LENGTH 512 
+//debugging?
 
 // firmware versions, etc
 const unsigned int LifxBulbVendor  = 1;
@@ -295,18 +296,16 @@ class lifxUdp: public Component {
   uint8_t set_bri = 1;
   uint8_t set_kel = 1;
   bool UPDATING = 0;
-
-
   long dim = 0;
-
   uint32_t dur = 0;
-  uint8_t _sequence = 0x00;
+  uint8_t _sequence = 0;
 
   byte mac[6];
   byte site_mac[6] = { 0x4C, 0x49, 0x46, 0x58, 0x56, 0x32 }; // spells out "LIFXV2" - version 2 of the app changes the site address to this...
 
   // label (name) for this bulb
-  char bulbLabel[LifxBulbLabelLength]; 
+  char bulbLabel[LifxBulbLabelLength] = "Test"; 
+  //memset( bulbLabel, 0, LifxBulbLabelLength);
 
   // tags for this bulb
   char bulbTags[LifxBulbTagsLength] = {
@@ -320,28 +319,60 @@ class lifxUdp: public Component {
 	  // moved to beginUDP()
   }
 
-  void beginUDP( byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] ) {
+void incomingUDP(AsyncUDPPacket &packet ) {
+	int packetSize = packet.length();
+	//uint8_t *packetBuffer = packet.data();
+	uint8_t packetBuffer[packetSize];
+	memcpy( packetBuffer, packet.data(), packetSize );
+
+	ESP_LOGD("LIFXUDP", "Packet arrived");
+	debug_println();
+	debug_print(F("LIFX Packet Arrived ("));
+	debug_print(packetSize);
+	debug_print(F("): "));
+	for(int i=0; i<packetSize; i++){
+		if(packetBuffer[i] <= 0x0F) { debug_print(F("0"));}  // pad with zeros for proper alignment
+		debug_print(packetBuffer[i], HEX);
+		debug_print(SPACE);
+	}
+	debug_println();
+
+	LifxPacket request;
+	// stuff the packetBuffer into the lifxPacket request struct.
+	processRequest(packetBuffer, packetSize, request);
+
+	//respond to the request. Now passing the original packet for easier repsonse to packet
+	handleRequest(request, packet);
+  }
+  
+  void beginUDP( byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] = "Test") {
 	// real bulbs all have a mac starting with D0:73:D5:
 	for(int i=0; i<6; i++){
 		mac[i] = bulbMac[i];
 	}
 	debug_print(F("Setting Light Name: "));
 	debug_println(lifxLightName);
-	for(int j=0; j<LifxBulbLabelLength; j++){
+	for(int j=0; j<strlen(lifxLightName); j++){
 		bulbLabel[j] = lifxLightName[j];
 	}
 	debug_println(bulbLabel);
 
 	eepromfake();
     // start listening for packets
+	bool block = 0;
+	long pNo = 0;
 	if(Udp.listen(LifxPort)) {
 		ESP_LOGD("LIFXUDP", "Listerner Enabled");
-		Udp.onPacket(
+		Udp.onPacket( 
 			[&](AsyncUDPPacket &packet) {
-				float packetSize = packet.length();
+				long packetTime = millis();
+				int packetSize = packet.length();
 				if (packetSize) {  //ignore empty packets?  Needed?
-					incomingUDP(packet, packetSize);
+					incomingUDP(packet);
 				}
+				Serial.print(F("Total Packet time: "));
+  				Serial.println( millis() - packetTime );
+				
 			}
 		);
 	}
@@ -430,28 +461,6 @@ class lifxUdp: public Component {
 	*/
 }
   
-  void incomingUDP(AsyncUDPPacket &packet, float packetSize) {
-	uint8_t *packetBuffer = packet.data();
-
-	ESP_LOGD("LIFXUDP", "Packet arrived");
-	debug_println();
-	debug_print(F("LIFX Packet Arrived ("));
-	debug_print(packetSize);
-	debug_print(F("): "));
-	for(int i=0; i<packetSize; i++){
-		if(packetBuffer[i] <= 0x0F) { debug_print(F("0"));}  // pad with zeros for proper alignment
-		debug_print(packetBuffer[i], HEX);
-		debug_print(SPACE);
-	}
-	debug_println();
-
-	LifxPacket request;
-	// stuff the packetBuffer into the lifxPacket request struct.
-	processRequest(packetBuffer, packetSize, request);
-
-	//respond to the request. Now passing the original packet for easier repsonse to packet
-	handleRequest(request, packet);
-  }
   
 
 
@@ -496,7 +505,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
   debug_print(F("Received packet type "));
   debug_println(request.packet_type, HEX);
   LifxPacket response;
-  for( int x = 0; x < sizeof( request.source ); x++ ) {
+  for( int x = 0; x < 4; x++ ) {
 	  	response.source[x] = request.source[x];
 		//debug_print(response.source[x], HEX);
   }
@@ -878,12 +887,12 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
   }
 }
 
-void sendPacket(LifxPacket &pkt, AsyncUDPPacket &packet) {
-  sendUDPPacket(pkt, packet);
+void sendOldPacket(LifxPacket &pkt, AsyncUDPPacket &packet) {
+  //sendUDPPacket(pkt, packet);
   // todo re-add tcp here if needed
 }
 
-unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
+unsigned int sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   // broadcast packet on local subnet
   IPAddress remote_addr(Udpi.remoteIP());
   int remote_port = Udpi.remotePort();
@@ -893,14 +902,15 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   debug_print(remote_port);
   debug_println();
   
-  uint8_t _message[LIFX_MAX_PACKET_LENGTH];
+  int totalSize = LifxPacketSize + pkt.data_size;
+  uint8_t _message[totalSize+1];
   int _packetLength = 0;
  
-  memset(_message, 0, LIFX_MAX_PACKET_LENGTH);   // initialize _message with zeroes
+  memset(_message, 0, totalSize+1);   // initialize _message with zeroes
 
   //// FRAME 
-  _message[_packetLength++] = (lowByte(LifxPacketSize + pkt.data_size));
-  _message[_packetLength++] = (highByte(LifxPacketSize + pkt.data_size));
+  _message[_packetLength++] = (lowByte(totalSize));
+  _message[_packetLength++] = (highByte(totalSize));
 
   // protocol uint16_t
   _message[_packetLength++] = (lowByte(pkt.protocol));
@@ -952,13 +962,18 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
 
+  debug_println(F("Loading payload into packet"));
   //data
   for (int i = 0; i < pkt.data_size; i++) {
 	_message[_packetLength++] = (lowByte(pkt.data[i]));
   }
 
   // async packets get a free write back to the original object
+  //delay(200);
+  long writeTime = millis();
   Udpi.write(_message, _packetLength);
+  Serial.print(F("Packet time: "));
+  Serial.println( millis() - writeTime );
 
   // debugging output
   debug_print(F("Packet processed: "));
@@ -969,13 +984,14 @@ unsigned int sendUDPPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   }
   //printLifxPacket(pkt, _packetLength);
   debug_println();
-  return LifxPacketSize + pkt.data_size;
+  //Serial.println(F("."));
+  return _packetLength;
 }
 
 // this function sets the lights based on values in the globals
 // TODO: refactor to take parameters instead of globals 
 void setLight() {
-  if( UPDATING == 1) { return; }  // cheesey update blocker
+  if( UPDATING == 2) { return; }  // cheesey update blocker
   else { UPDATING = 1; }
   int maxColor = 255;
   debug_print(F("Set light - "));
