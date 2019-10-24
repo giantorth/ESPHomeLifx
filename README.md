@@ -2,7 +2,7 @@
 Port of Lifx protocol to ESPHome.io firmware.
 
 !!! Warning !!!
-I have bricked a sealed bulb with this firmware.  Flashing to sealed devices is at your own risk!
+If you add this component it should be the last item in the YAML or it might cause the ESP to crash.
 
 Instructions:
 - A sample bulb YAML is provided for ESPHome configuration
