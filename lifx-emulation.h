@@ -1,7 +1,6 @@
 #include "esphome.h"
 #include <ESPAsyncUDP.h>
 
-// if you turn off debug printing the whole thing crashes like crazy...
 #define DEBUG
 
 #ifdef DEBUG
@@ -11,6 +10,7 @@
  #define debug_print(x, ...) 
  #define debug_println(x, ...)
 #endif
+
 
 /* Source: http://stackoverflow.com/questions/3018313/algorithm-to-convert-rgb-to-hsv-and-hsv-to-rgb-in-range-0-255-for-both */
 
@@ -286,7 +286,7 @@ class lifxUdp: public Component {
   uint16_t sat = 0;
   uint16_t bri = 65535;
   uint16_t kel = 2000;
-  byte trans = 0;
+  uint8_t trans = 0;
   uint32_t period = 0;
   float cycles = 0;
   int skew_ratio = 0; //signed 16 bit int
@@ -295,24 +295,24 @@ class lifxUdp: public Component {
   uint8_t set_sat = 1;
   uint8_t set_bri = 1;
   uint8_t set_kel = 1;
-  bool UPDATING = 0;
   long dim = 0;
-  uint32_t dur = 0;
+  uint32_t dur = 0; 
   uint8_t _sequence = 0;
 
   byte mac[6];
   byte site_mac[6] = { 0x4C, 0x49, 0x46, 0x58, 0x56, 0x32 }; // spells out "LIFXV2" - version 2 of the app changes the site address to this...
 
-  // label (name) for this bulb
+  // label (name) for this bulb, default to Test if nothing is set
   char bulbLabel[LifxBulbLabelLength] = "Test"; 
   //memset( bulbLabel, 0, LifxBulbLabelLength);
 
-  // tags for this bulb
+  // tags for this bulb, seemingly unused on current real bulbs
   char bulbTags[LifxBulbTagsLength] = {
 	0, 0, 0, 0, 0, 0, 0, 0
   };
   char bulbTagLabels[LifxBulbTagLabelsLength] = "";
 
+  // Should probably check if wifi is up first before doing this
   AsyncUDP Udp;
 
   void setup() override {
@@ -321,6 +321,8 @@ class lifxUdp: public Component {
 
 void incomingUDP(AsyncUDPPacket &packet ) {
 	int packetSize = packet.length();
+
+	// Changed from a pointer to a memcpy when trying to chase down a bug, likely not needed.  Was worried about simultanious packets.
 	//uint8_t *packetBuffer = packet.data();
 	uint8_t packetBuffer[packetSize];
 	memcpy( packetBuffer, packet.data(), packetSize );
@@ -329,24 +331,24 @@ void incomingUDP(AsyncUDPPacket &packet ) {
 	debug_println();
 	debug_print(F("LIFX Packet Arrived ("));
 	debug_print(packetSize);
-	debug_print(F("): "));
+	debug_print(F(" bytes): "));
 	for(int i=0; i<packetSize; i++){
-		if(packetBuffer[i] <= 0x0F) { debug_print(F("0"));}  // pad with zeros for proper alignment
+		if(packetBuffer[i] <= 0x0F) { debug_print(F("0"));}  // pad with zeros for proper alignment with web packet decoder tools
 		debug_print(packetBuffer[i], HEX);
 		debug_print(SPACE);
 	}
 	debug_println();
 
 	LifxPacket request;
-	// stuff the packetBuffer into the lifxPacket request struct.
+	// stuff the packetBuffer into the lifxPacket request struct and return the start of a request object
 	processRequest(packetBuffer, packetSize, request);
 
-	//respond to the request. Now passing the original packet for easier repsonse to packet
+	//respond to the request. 
 	handleRequest(request, packet);
   }
   
   void beginUDP( byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] = "Test") {
-	// real bulbs all have a mac starting with D0:73:D5:
+	// real Lifx bulbs all have a mac starting with D0:73:D5, consider changing ESP mac to spoof?
 	for(int i=0; i<6; i++){
 		mac[i] = bulbMac[i];
 	}
@@ -370,7 +372,7 @@ void incomingUDP(AsyncUDPPacket &packet ) {
 				if (packetSize) {  //ignore empty packets?  Needed?
 					incomingUDP(packet);
 				}
-				Serial.print(F("Total Packet time: "));
+				Serial.print(F("Total Packet handling time: "));
   				Serial.println( millis() - packetTime );
 				
 			}
@@ -378,7 +380,7 @@ void incomingUDP(AsyncUDPPacket &packet ) {
 	}
 	//TODO: TCP support necessary?
 	//TcpServer.begin();
-	setLight();
+	setLight();  // will turn light on at boot
   }
   void loop() override {
 	  //todo stuff, unneeded for async services
@@ -460,9 +462,6 @@ void incomingUDP(AsyncUDPPacket &packet ) {
 	debug_println();
 	*/
 }
-  
-  
-
 
   void processRequest(byte *packetBuffer, float packetSize, LifxPacket &request) {
 
@@ -502,19 +501,22 @@ void incomingUDP(AsyncUDPPacket &packet ) {
   }
 
 void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
-  debug_print(F("Received packet type "));
-  debug_println(request.packet_type, HEX);
+  debug_print(F("Received packet type 0x"));
+  debug_print(request.packet_type, HEX);
+  debug_print(F(" ("));
+  debug_print(request.packet_type, DEC);
+  debug_println(F(")"));
+
   LifxPacket response;
   for( int x = 0; x < 4; x++ ) {
 	  	response.source[x] = request.source[x];
-		//debug_print(response.source[x], HEX);
   }
   switch (request.packet_type) {
 
 	case GET_PAN_GATEWAY:
 	  {
 		// we are a gateway, so respond to this
-		debug_println(F(" GET_PAN_GATEWAY"));
+		//debug_println(F(">>GET_PAN_GATEWAY Discovery Packet"));
 
 		// respond with the UDP port
 		response.packet_type = PAN_GATEWAY;
@@ -621,8 +623,8 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		  highByte(bri), //bri
 		  lowByte(kel),  //kel
 		  highByte(kel), //kel
-		  lowByte(dim),  //dim
-		  highByte(dim), //dim
+		  lowByte(dim),  // listed as reserved in protocol
+		  highByte(dim), // listed as reserved in protocol
 		  lowByte(power_status),  //power status
 		  highByte(power_status), //power status
 		  // label
@@ -658,7 +660,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		  lowByte(bulbLabel[29]),
 		  lowByte(bulbLabel[30]),
 		  lowByte(bulbLabel[31]),
-		  //tags
+		  //tags/reserved/unused
 		  lowByte(bulbTags[0]),
 		  lowByte(bulbTags[1]),
 		  lowByte(bulbTags[2]),
@@ -772,16 +774,18 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 
 	case GET_LOCATION_STATE:
 	  {
-	  response.packet_type = LOCATION_STATE;
-	  response.protocol = LifxProtocol_AllBulbsResponse;
-	  break;
+	  	response.packet_type = LOCATION_STATE;
+	  	response.protocol = LifxProtocol_AllBulbsResponse;
 	  }
+  	  break;
+
 	case GET_GROUP_STATE:
-	{
-	  response.packet_type = GROUP_STATE;
-	  response.protocol = LifxProtocol_AllBulbsResponse;
+		{
+	  	response.packet_type = GROUP_STATE;
+	  	response.protocol = LifxProtocol_AllBulbsResponse;
+		}
 	  break;
-	}
+
 	case GET_VERSION_STATE:
 	  {
 		// respond to get command
@@ -880,7 +884,9 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 
 	default:
 	  {
-		  debug_print(F("Unknown packet type: "));
+		  debug_print(F("################### Unknown packet type: "));
+		  debug_print(request.packet_type, HEX);
+		  debug_print(F("/"));
 		  debug_println(request.packet_type, DEC);
 	  }
 	  break;
@@ -962,21 +968,19 @@ unsigned int sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   _message[_packetLength++] = (lowByte(0x00));
   _message[_packetLength++] = (lowByte(0x00));
 
-  debug_println(F("Loading payload into packet"));
   //data
   for (int i = 0; i < pkt.data_size; i++) {
 	_message[_packetLength++] = (lowByte(pkt.data[i]));
   }
 
-  // async packets get a free write back to the original object
-  //delay(200);
-  long writeTime = millis();
+  // async packets get a free reply without specifying target
   Udpi.write(_message, _packetLength);
-  Serial.print(F("Packet time: "));
-  Serial.println( millis() - writeTime );
 
   // debugging output
-  debug_print(F("Packet processed: "));
+  debug_print(F("Sending Packet ("));
+  debug_print(_packetLength);
+  debug_print(F(" bytes): "));
+
   for (int j = 0; j < _packetLength; j++) {
 	if(_message[j] <= 0x0F) { debug_print(F("0"));}  // pad with zeros for proper alignment
 	debug_print(_message[j], HEX);
@@ -991,8 +995,6 @@ unsigned int sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
 // this function sets the lights based on values in the globals
 // TODO: refactor to take parameters instead of globals 
 void setLight() {
-  if( UPDATING == 2) { return; }  // cheesey update blocker
-  else { UPDATING = 1; }
   int maxColor = 255;
   debug_print(F("Set light - "));
   debug_print(F("hue: "));
@@ -1012,6 +1014,7 @@ void setLight() {
 
   if (power_status && bri) {
 	float bright = (float)bri/65535;
+
 	// if we are setting a "white" colour (kelvin temp)
 	if (sat < 1) { //removed condition: kel > 0, app seems to always send kelvin but sets saturation to 0
 	  auto callW = white_led->turn_on();
@@ -1029,6 +1032,7 @@ void setLight() {
 	  // set the new values ready to go to the bulb (brightness does not change, just hue and saturation)
 	  //this_hue = map(kelvin_hsv.h, 0, 359, 0, 767);
 	  //this_sat = map(kelvin_hsv.s * 1000, 0, 1000, 0, 255); //multiply the sat by 1000 so we can map the percentage value returned by rgb2hsv
+
 	  callW.set_color_temperature(mireds);
 	  callW.set_brightness(bright);
 	  callW.set_transition_length(dur);
@@ -1056,7 +1060,7 @@ void setLight() {
 		// LIFXBulb.fadeHSB(this_hue, this_sat, this_bri);
 		callC.set_rgb(r,g,b);
 		callC.set_brightness(bright);//(bri/65535);
-		callC.set_transition_length(0);
+		callC.set_transition_length(dur);
 		callW.perform();
 		callC.perform();
 	}
@@ -1067,10 +1071,12 @@ void setLight() {
 	call.set_transition_length(dur);
  	call.perform();
 	auto call2 = white_led->turn_off();
+	call2.set_brightness(0);
+	// fade to black
+	call.set_transition_length(dur);
 	call2.perform();
 	// LIFXBulb.fadeHSB(0, 0, 0);
   }
-  UPDATING = 0;
 }
 
 //#define DEG_TO_RAD(X) (M_PI*(X)/180)
