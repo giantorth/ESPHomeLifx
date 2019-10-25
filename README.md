@@ -1,6 +1,8 @@
 # ESPHomeLifx
 Port of Lifx protocol to ESPHome.io firmware.
 
+My #1 motivation in creating this was so I could host a giant light show using Light DJ (https://lightdjapp.com/).  This app gives amazing light effects and supports 128 simultaneous bulbs using the lifx lan protocol.  
+
 !!! Warning !!!
 If you add this component it should be the last item in the YAML or it might cause the ESP to crash.
 
@@ -16,11 +18,14 @@ Working:
 - Detected by lifxlan python library
 
 Lots of work still todo:
+- Pending code refactor
 - Home Assistant unable to detect bulbs, need to get wireshark involved
 - Fake current firmware versions so app doesn't want to upgrade
-- app flickers when checking bulb status occasionally
+- App flickers when checking bulb status occasionally
 - Somehow automatically read esphome name so it doesn't need to be set in lamba variable
 - Packet sequence number not incrementing
+- Does not support names/groups/locations yet 
+- Does not support eeprom operations (not particularly recommended on an esp8266 anyways)
 
 Debugging:
 - Serial console will output all in/out packet contents in HEX
