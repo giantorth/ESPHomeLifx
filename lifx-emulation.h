@@ -265,6 +265,10 @@ const byte SET_WAVEFORM_OPTIONAL = 0x77;
 const byte GET_MESH_FIRMWARE_STATE = 0x0e;
 const byte MESH_FIRMWARE_STATE = 0x0f;
 
+const byte GET_INFARED_STATE = 0x78;
+const byte STATE_INFARED_STATE = 0x79;
+const byte SET_INFARED_STATE = 0x7A;
+
 // unused eeprom defines, not working under esphome yet
 #define EEPROM_BULB_LABEL_START 0 // 32 bytes long
 #define EEPROM_BULB_TAGS_START 32 // 8 bytes long
@@ -285,7 +289,7 @@ class lifxUdp: public Component {
   uint16_t hue = 0;
   uint16_t sat = 0;
   uint16_t bri = 65535;
-  uint16_t kel = 2000;
+  uint16_t kel = 2700;
   uint8_t trans = 0;
   uint32_t period = 0;
   float cycles = 0;
@@ -298,6 +302,9 @@ class lifxUdp: public Component {
   long dim = 0;
   uint32_t dur = 0; 
   uint8_t _sequence = 0;
+  double lastChange = millis();
+  uint16_t offdur = 1000;  // trying to emulate real bulbs
+  uint16_t throttleAt = 100; // when to kill transition times
 
   byte mac[6];
   byte site_mac[6] = { 0x4C, 0x49, 0x46, 0x58, 0x56, 0x32 }; // spells out "LIFXV2" - version 2 of the app changes the site address to this...
@@ -330,6 +337,13 @@ void incomingUDP(AsyncUDPPacket &packet ) {
 	ESP_LOGD("LIFXUDP", "Packet arrived");
 	debug_println();
 	debug_print(F("LIFX Packet Arrived ("));
+	IPAddress remote_addr(packet.remoteIP());
+	int remote_port = packet.remotePort();
+	debug_print(remote_addr);
+	debug_print(F(":"));
+	debug_print(remote_port);
+	debug_print(F(")("));
+
 	debug_print(packetSize);
 	debug_print(F(" bytes): "));
 	for(int i=0; i<packetSize; i++){
@@ -382,6 +396,7 @@ void incomingUDP(AsyncUDPPacket &packet ) {
 	//TcpServer.begin();
 	setLight();  // will turn light on at boot
   }
+
   void loop() override {
 	  //todo stuff, unneeded for async services
   }
@@ -560,7 +575,10 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		sat = word(request.data[4], request.data[3]);
 		bri = word(request.data[6], request.data[5]);
 		kel = word(request.data[8], request.data[7]);
-		byte dur[] = {request.data[12], request.data[11], request.data[10], request.data[9] };
+		dur = (uint32_t)request.data[9] << 0 |
+		      (uint32_t)request.data[10] << 8 |
+			  (uint32_t)request.data[11] << 16 |
+			  (uint32_t)request.data[12] << 24;
 
 		setLight();
 	  }
@@ -573,7 +591,10 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		bri = word(request.data[7], request.data[6]);
 		kel = word(request.data[9], request.data[8]);
 		// duration should be multiplied by cycles in theory but ignored for now
-		byte dur[] = {request.data[13], request.data[12], request.data[11], request.data[10] };
+		dur = (uint32_t)request.data[10] << 0 |
+		      (uint32_t)request.data[11] << 8 |
+			  (uint32_t)request.data[12] << 16 |
+			  (uint32_t)request.data[13] << 24;
 		setLight();
 	}
 	break;
@@ -596,7 +617,10 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 			debug_print(F(" set kel "));
 			kel = word(request.data[9], request.data[8]);
 		}
-		byte dur[] = {request.data[13], request.data[12], request.data[11], request.data[10] };
+		dur = (uint32_t)request.data[10] << 0 |
+		      (uint32_t)request.data[11] << 8 |
+			  (uint32_t)request.data[12] << 16 |
+			  (uint32_t)request.data[13] << 24;
 
 		// period uint32_t
 		// cycles float
@@ -899,15 +923,6 @@ void sendOldPacket(LifxPacket &pkt, AsyncUDPPacket &packet) {
 }
 
 unsigned int sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
-  // broadcast packet on local subnet
-  IPAddress remote_addr(Udpi.remoteIP());
-  int remote_port = Udpi.remotePort();
-  debug_print(F("+UDP packet building triggered by: "));
-  debug_print(remote_addr);
-  debug_print(F(":"));
-  debug_print(remote_port);
-  debug_println();
-  
   int totalSize = LifxPacketSize + pkt.data_size;
   uint8_t _message[totalSize+1];
   int _packetLength = 0;
@@ -996,6 +1011,11 @@ unsigned int sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
 // TODO: refactor to take parameters instead of globals 
 void setLight() {
   int maxColor = 255;
+  int loopDuration = 0;
+  double loopRate = millis() - lastChange;
+  debug_print(F("Packet rate:"));
+  debug_print(loopRate);
+  debug_println(F("msec"));
   debug_print(F("Set light - "));
   debug_print(F("hue: "));
   debug_print(hue);
@@ -1010,13 +1030,13 @@ void setLight() {
   debug_print(F(", power: "));
   debug_print(power_status);
   debug_println(power_status ? " (on)" : "(off)");
-  //auto call = lifx->turn_on();
 
   if (power_status && bri) {
 	float bright = (float)bri/65535;
 
 	// if we are setting a "white" colour (kelvin temp)
 	if (sat < 1) { //removed condition: kel > 0, app seems to always send kelvin but sets saturation to 0
+	  debug_println(F("White light enabled"));
 	  auto callW = white_led->turn_on();
 	  auto callC = color_led->turn_off();
       uint16_t mireds = 1000000 / kel;  
@@ -1039,21 +1059,13 @@ void setLight() {
 	  callC.perform();
 	  callW.perform();
 	} else {
-	int this_hue = map(hue, 0, 65535, 0, 767);
-	int this_sat = map(sat, 0, 65535, 0, 255);
-	int this_bri = map(bri, 0, 65535, 0, 255);
-	auto callW = white_led->turn_off();
-	auto callC = color_led->turn_on();
+		int this_hue = map(hue, 0, 65535, 0, 767);
+		int this_sat = map(sat, 0, 65535, 0, 255);
+		int this_bri = map(bri, 0, 65535, 0, 255);
+		auto callW = white_led->turn_off();
+		auto callC = color_led->turn_on();
 		uint8_t rgbColor[3];
 		hsb2rgb(this_hue, this_sat, this_bri, rgbColor);
-		debug_println(F("Colors:"));
-		debug_print(F(" Red:"));
-		debug_print(rgbColor[0]);
-		debug_print(F(" Green:"));
-		debug_print(rgbColor[1]);
-		debug_print(F(" Blue:"));
-		debug_print(rgbColor[2]);
-		debug_println();
 		float r = (float)rgbColor[0] / maxColor;
 		float g = (float)rgbColor[1] / maxColor;
 		float b = (float)rgbColor[2] / maxColor;
@@ -1066,7 +1078,7 @@ void setLight() {
 	}
   }  else { // shit be off, yo
 	auto call = color_led->turn_off();
-	call.set_rgb(0,0,0);
+	//call.set_rgb(0,0,0);
 	call.set_brightness(0);
 	call.set_transition_length(dur);
  	call.perform();
@@ -1077,6 +1089,7 @@ void setLight() {
 	call2.perform();
 	// LIFXBulb.fadeHSB(0, 0, 0);
   }
+  lastChange = millis();  // throttle transitions based on last change
 }
 
 //#define DEG_TO_RAD(X) (M_PI*(X)/180)
