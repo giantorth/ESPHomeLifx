@@ -186,7 +186,7 @@ struct LifxPacket {
    //bool res_required; // response message required
    //bool ack_required; // acknowledgement message required
    //bool reservedbits[6]; // 6 bits of reserved?
-  uint8_t reserved3;
+  uint8_t res_ack;
   uint8_t sequence; //message sequence number
 
   ////protocol header
@@ -216,13 +216,14 @@ const unsigned int LifxBulbProduct = 1;
 const unsigned int LifxBulbVersion = 512;
 const unsigned int LifxFirmwareVersionMajor = 1;
 const unsigned int LifxFirmwareVersionMinor = 5;
+const unsigned int LifxMagicNum = 952000;  // seems to be appended to the epoch in msec
 
 const byte SERVICE_UDP = 0x01;
 const byte SERVICE_TCP = 0x02;
 
 // packet types
 const byte GET_PAN_GATEWAY = 0x02;
-const byte PAN_GATEWAY = 0x03;
+const byte PAN_GATEWAY = 0x03;  // stateService
 
 const byte GET_WIFI_FIRMWARE_STATE = 0x12;
 const byte WIFI_FIRMWARE_STATE = 0x13;
@@ -242,7 +243,7 @@ const byte GET_VERSION_STATE = 0x20;
 const byte VERSION_STATE = 0x21;
 
 const byte GET_LOCATION_STATE = 0x30;
-const byte LOCATION_STATE = 0x50;
+const byte LOCATION_STATE = 0x32;
 
 const byte GET_GROUP_STATE = 0x33;
 const byte GROUP_STATE = 0x25;
@@ -255,7 +256,7 @@ const byte GET_BULB_TAG_LABELS = 0x1d;
 const byte SET_BULB_TAG_LABELS = 0x1e;
 const byte BULB_TAG_LABELS = 0x1f;
 
-const byte GET_LIGHT_STATE = 0x65;
+const byte GET_LIGHT_STATE = 0x65;  //101
 const byte SET_LIGHT_STATE = 0x66;
 const byte LIGHT_STATUS = 0x6b;
 
@@ -307,7 +308,7 @@ class lifxUdp: public Component {
   uint16_t throttleAt = 100; // when to kill transition times
 
   byte mac[6];
-  byte site_mac[6] = { 0x4C, 0x49, 0x46, 0x58, 0x56, 0x32 }; // spells out "LIFXV2" - version 2 of the app changes the site address to this...
+  byte site_mac[6] = { 0x4C, 0x49, 0x46, 0x58, 0x56, 0x32 }; // spells out "LIFXV2" - version 2 of the app changes the site address to this...?
 
   // label (name) for this bulb, default to Test if nothing is set
   char bulbLabel[LifxBulbLabelLength] = "Test"; 
@@ -318,6 +319,13 @@ class lifxUdp: public Component {
 	0, 0, 0, 0, 0, 0, 0, 0
   };
   char bulbTagLabels[LifxBulbTagLabelsLength] = "";
+
+  // Location UUID
+  char _locationUUID[37] = "b49bed4d-77b0-05a3-9ec3-be93d9582f1f";
+  // "My Home"
+  String locationLabel[32] = "My Home";
+  // Updated at timestamp
+  uint64_t _locationUpdated = 1553350342028441856;
 
   // Should probably check if wifi is up first before doing this
   AsyncUDP Udp;
@@ -361,7 +369,7 @@ void incomingUDP(AsyncUDPPacket &packet ) {
 	handleRequest(request, packet);
   }
   
-  void beginUDP( byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] = "Test") {
+  void beginUDP( byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] = "Test" ) {
 	// real Lifx bulbs all have a mac starting with D0:73:D5, consider changing ESP mac to spoof?
 	for(int i=0; i<6; i++){
 		mac[i] = bulbMac[i];
@@ -373,7 +381,6 @@ void incomingUDP(AsyncUDPPacket &packet ) {
 	}
 	debug_println(bulbLabel);
 
-	eepromfake();
     // start listening for packets
 	bool block = 0;
 	long pNo = 0;
@@ -401,83 +408,6 @@ void incomingUDP(AsyncUDPPacket &packet ) {
 	  //todo stuff, unneeded for async services
   }
   
-  void eepromfake() {
-	// not supported properly in ESPHome yet.
-	return;
-	/*
-	debug_println(F("EEPROM dump:"));
-	
-	for (int i = 0; i < 256; i++) {
-		debug_print(EEPROM.read(i));
-		debug_print(SPACE);
-	}
-	
-	debug_println();
-	
-	
-	// read in settings from EEPROM (if they exist) for bulb label and tags
-	if (EEPROM.read(EEPROM_CONFIG_START) == EEPROM_CONFIG[0]
-	  && EEPROM.read(EEPROM_CONFIG_START + 1) == EEPROM_CONFIG[1]
-	  && EEPROM.read(EEPROM_CONFIG_START + 2) == EEPROM_CONFIG[2]) {
-		debug_println(F("Config exists in EEPROM, reading..."));
-		debug_print(F("Bulb label: "));
-
-		for (int i = 0; i < LifxBulbLabelLength; i++) {
-		  bulbLabel[i] = EEPROM.read(EEPROM_BULB_LABEL_START + i);
-		  debug_print(bulbLabel[i]);
-		}
-
-		debug_println();
-		debug_print(F("Bulb tags: "));
-
-		for (int i = 0; i < LifxBulbTagsLength; i++) {
-		  bulbTags[i] = EEPROM.read(EEPROM_BULB_TAGS_START + i);
-		  debug_print(bulbTags[i]);
-		}
-
-		debug_println();
-		debug_print(F("Bulb tag labels: "));
-
-		for (int i = 0; i < LifxBulbTagLabelsLength; i++) {
-		  bulbTagLabels[i] = EEPROM.read(EEPROM_BULB_TAG_LABELS_START + i);
-		  debug_print(bulbTagLabels[i]);
-	}
-	debug_println();
-	debug_println(F("Done reading EEPROM config."));
-	} else {
-		// first time sketch has been run, set defaults into EEPROM
-		debug_println(F("Config does not exist in EEPROM, writing..."));
-
-		EEPROM.write(EEPROM_CONFIG_START, EEPROM_CONFIG[0]);
-		EEPROM.write(EEPROM_CONFIG_START + 1, EEPROM_CONFIG[1]);
-		EEPROM.write(EEPROM_CONFIG_START + 2, EEPROM_CONFIG[2]);
-
-		for (int i = 0; i < LifxBulbLabelLength; i++) {
-		  EEPROM.write(EEPROM_BULB_LABEL_START + i, bulbLabel[i]);
-		}
-
-		for (int i = 0; i < LifxBulbTagsLength; i++) {
-		  EEPROM.write(EEPROM_BULB_TAGS_START + i, bulbTags[i]);
-		}
-
-		for (int i = 0; i < LifxBulbTagLabelsLength; i++) {
-		  EEPROM.write(EEPROM_BULB_TAG_LABELS_START + i, bulbTagLabels[i]);
-		}
-
-		debug_println(F("Done writing EEPROM config."));
-	}
-	
-	debug_println(F("EEPROM dump:"));
-	
-	for (int i = 0; i < 256; i++) {
-		debug_print(EEPROM.read(i));
-		debug_print(SPACE);
-	}
-	
-	debug_println();
-	*/
-}
-
   void processRequest(byte *packetBuffer, float packetSize, LifxPacket &request) {
 
 	request.size        = packetBuffer[0] + (packetBuffer[1] << 8); //little endian
@@ -499,8 +429,8 @@ void incomingUDP(AsyncUDPPacket &packet ) {
 	};
 	memcpy(request.site, site, 6);
 
-	request.reserved3   = packetBuffer[22] + packetBuffer[23];
-	request.sequence	= _sequence++;
+	request.res_ack   = packetBuffer[22];
+	request.sequence	= packetBuffer[23]; //_sequence++;
 	request.timestamp   = packetBuffer[24] + packetBuffer[25] + packetBuffer[26] + packetBuffer[27] +
 	  					  packetBuffer[28] + packetBuffer[29] + packetBuffer[30] + packetBuffer[31];
 	request.packet_type = packetBuffer[32] + (packetBuffer[33] << 8); //little endian
@@ -527,6 +457,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 	  	response.source[x] = request.source[x];
   }
   switch (request.packet_type) {
+	response.res_ack = 0x01;
 
 	case GET_PAN_GATEWAY:
 	  {
@@ -536,6 +467,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		// respond with the UDP port
 		response.packet_type = PAN_GATEWAY;
 		response.protocol = LifxProtocol_AllBulbsResponse;
+		response.res_ack = 0x00;  // no response/ack
 		byte UDPdata[] = {
 		  SERVICE_UDP, //UDP
 		  lowByte(LifxPort),
@@ -547,23 +479,6 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		memcpy(response.data, UDPdata, sizeof(UDPdata));
 		response.data_size = sizeof(UDPdata);
 		sendPacket( response, packet );
-
-		/*
-		// respond with the TCP port details
-		response.packet_type = PAN_GATEWAY;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		byte TCPdata[] = {
-		  SERVICE_TCP, //TCP
-		  lowByte(0), // 0 to disable per official docs (should be LifxPort)
-		  highByte(0), //same
-		  0x00,
-		  0x00
-		};
-
-		//memcpy(response.data, TCPdata, sizeof(TCPdata));
-		//response.data_size = sizeof(TCPdata);
-		//sendPacket( response, packet );
-		*/
 	  }
 	  break;
 
@@ -800,6 +715,23 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 	  {
 	  	response.packet_type = LOCATION_STATE;
 	  	response.protocol = LifxProtocol_AllBulbsResponse;
+		byte locationUUID[16];
+		_locationUUID.getBytes(locationUUID, 16);  
+		uint8_t *locationUpdated = (uint8_t *)&_locationUpdated;
+		byte locationData[sizeof( _locationUUID ) + sizeof( _locationTime ) + 32];
+		int _loc = 0;
+		for(int i=sizeof(_locationUUID); i>-1; i--) {  // work backwards
+			locationData[_loc++] = (locationData[i] << 8);
+		}
+		for(int i=0; i<32; i++) {
+			locationData[_loc++] = locationLabel[i];
+		}
+		for(int i=sizeof(_locationTime); i>-1; i--) {  // work backwards
+			locationData[_loc++] = (locationUpdated[i] << 8);
+		}
+		memcpy(response.data, locationData, sizeof(locationData));
+		response.data_size = sizeof(locationData);
+		sendPacket(response, packet);
 	  }
   	  break;
 
@@ -815,6 +747,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		// respond to get command
 		response.packet_type = VERSION_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
+		response.res_ack = 0x00;  // no reponse
 		byte VersionData[] = {
 		  lowByte(LifxBulbVendor),
 		  highByte(LifxBulbVendor),
@@ -833,31 +766,6 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		memcpy(response.data, VersionData, sizeof(VersionData));
 		response.data_size = sizeof(VersionData);
 		sendPacket( response, packet );
-
-		/*
-		// respond again to get command (real bulbs respond twice, slightly diff data (see below)
-		response.packet_type = VERSION_STATE;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		byte VersionData2[] = {
-		  lowByte(LifxBulbVendor), //vendor stays the same
-		  highByte(LifxBulbVendor),
-		  0x00,
-		  0x00,
-		  lowByte(LifxBulbProduct*2), //product is 2, rather than 1
-		  highByte(LifxBulbProduct*2),
-		  0x00,
-		  0x00,
-		  0x00, //version is 0, rather than 1
-		  0x00,
-		  0x00,
-		  0x00
-		  };
-
-		memcpy(response.data, VersionData2, sizeof(VersionData2));
-		response.data_size = sizeof(VersionData2);
-		*/
-		//sendPacket( response, packet );
-		
 	  }
 	  break;
 
@@ -867,6 +775,7 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		// respond to get command
 		response.packet_type = MESH_FIRMWARE_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
+		response.res_ack = 0x00;  // no reponse
 		// timestamp data comes from observed packet from a LIFX v1.5 bulb
 		byte MeshVersionData[] = {
 		  0x00, 0x2e, 0xc3, 0x8b, 0xef, 0x30, 0x86, 0x13, //build timestamp
@@ -889,14 +798,19 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 		// respond to get command
 		response.packet_type = WIFI_FIRMWARE_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
+		response.res_ack = 0x00;  // no reponse
 		// timestamp data comes from observed packet from a LIFX v1.5 bulb
 		byte WifiVersionData[] = {
 		  0x00, 0xc8, 0x5e, 0x31, 0x99, 0x51, 0x86, 0x13, //build timestamp
 		  0xc0, 0x0c, 0x07, 0x00, 0x48, 0x46, 0xd9, 0x43, //install timestamp
-		  lowByte(LifxFirmwareVersionMinor),
-		  highByte(LifxFirmwareVersionMinor),
-		  lowByte(LifxFirmwareVersionMajor),
-		  highByte(LifxFirmwareVersionMajor)
+		  //lowByte(LifxFirmwareVersionMinor),
+		  //highByte(LifxFirmwareVersionMinor),
+		  //lowByte(LifxFirmwareVersionMajor),
+		  //highByte(LifxFirmwareVersionMajor)
+		  //0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14,  // color 1000 build
+		  //0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // color 1000 has no install timestamp
+		  //0x3e, 0x00, 0x65, 0x00  // Version 6619198
+		  0x05, 0x00, 0x01, 0x00  // Version 65541
 		};
 
 		memcpy(response.data, WifiVersionData, sizeof(WifiVersionData));
@@ -917,13 +831,15 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
   }
 }
 
-void sendOldPacket(LifxPacket &pkt, AsyncUDPPacket &packet) {
-  //sendUDPPacket(pkt, packet);
-  // todo re-add tcp here if needed
-}
-
 unsigned int sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   int totalSize = LifxPacketSize + pkt.data_size;
+  auto time = ha_time->now();
+  uint64_t packetT = (( time.timestamp * 1000 ) * 1000000 ) + LifxMagicNum;
+  //swapbytes( &packetT, sizeof(packetT) );
+  uint8_t *packetTime = (uint8_t *)&packetT;  
+
+  //debug_println( packetTime );
+
   uint8_t _message[totalSize+1];
   int _packetLength = 0;
  
@@ -959,22 +875,17 @@ unsigned int sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   }
 
   // reserved3: Flags - 6 bits reserved, 1bit ack required, 1bit res required
-  _message[_packetLength++] = (lowByte(0x01));  //forcing a repsonse
+  _message[_packetLength++] = (lowByte(pkt.res_ack));  
 
   // Sequence, unimplemented
   _message[_packetLength++] = (lowByte(0x00));
 
   //// PROTOCOL HEADER
-  // real bulbs send timestamp?  docs say "reserved"
-  _message[_packetLength++] = (lowByte(0x00));
-  _message[_packetLength++] = (lowByte(0x00));
-  _message[_packetLength++] = (lowByte(0x00));
-  _message[_packetLength++] = (lowByte(0x00));
-  _message[_packetLength++] = (lowByte(0x00));
-  _message[_packetLength++] = (lowByte(0x00));
-  _message[_packetLength++] = (lowByte(0x00));
-  _message[_packetLength++] = (lowByte(0x00));
-
+  // real bulbs send epoch in msec + a magic number...  docs say "reserved"
+  for( int i = 7; i > -1; i--) {
+	  _message[_packetLength++] = (lowByte(packetTime[i]));
+  }
+ 
   //packet type
   _message[_packetLength++] = (lowByte(pkt.packet_type));
   _message[_packetLength++] = (highByte(pkt.packet_type));
@@ -992,7 +903,11 @@ unsigned int sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi) {
   Udpi.write(_message, _packetLength);
 
   // debugging output
-  debug_print(F("Sending Packet ("));
+  debug_print(F("Sending Packet Type 0x"));
+  debug_print(pkt.packet_type, HEX);
+  debug_print(F(" ("));
+  debug_print(pkt.packet_type, DEC);
+  debug_print(F(", "));
   debug_print(_packetLength);
   debug_print(F(" bytes): "));
 
@@ -1034,8 +949,8 @@ void setLight() {
   if (power_status && bri) {
 	float bright = (float)bri/65535;
 
-	// if we are setting a "white" colour (kelvin temp)
-	if (sat < 1) { //removed condition: kel > 0, app seems to always send kelvin but sets saturation to 0
+	// if we are setting a "white" colour (no saturation)
+	if (sat < 1) { 
 	  debug_println(F("White light enabled"));
 	  auto callW = white_led->turn_on();
 	  auto callC = color_led->turn_off();
@@ -1061,7 +976,7 @@ void setLight() {
 	} else {
 		int this_hue = map(hue, 0, 65535, 0, 767);
 		int this_sat = map(sat, 0, 65535, 0, 255);
-		int this_bri = map(bri, 0, 65535, 0, 255);
+		int this_bri = map(bri, 0, 65535, 0, 255); 
 		auto callW = white_led->turn_off();
 		auto callC = color_led->turn_on();
 		uint8_t rgbColor[3];
@@ -1069,7 +984,6 @@ void setLight() {
 		float r = (float)rgbColor[0] / maxColor;
 		float g = (float)rgbColor[1] / maxColor;
 		float b = (float)rgbColor[2] / maxColor;
-		// LIFXBulb.fadeHSB(this_hue, this_sat, this_bri);
 		callC.set_rgb(r,g,b);
 		callC.set_brightness(bright);//(bri/65535);
 		callC.set_transition_length(dur);
@@ -1078,7 +992,6 @@ void setLight() {
 	}
   }  else { // shit be off, yo
 	auto call = color_led->turn_off();
-	//call.set_rgb(0,0,0);
 	call.set_brightness(0);
 	call.set_transition_length(dur);
  	call.perform();
@@ -1087,7 +1000,6 @@ void setLight() {
 	// fade to black
 	call.set_transition_length(dur);
 	call2.perform();
-	// LIFXBulb.fadeHSB(0, 0, 0);
   }
   lastChange = millis();  // throttle transitions based on last change
 }
@@ -1192,5 +1104,22 @@ void hsb2rgb(uint16_t index, uint8_t sat, uint8_t bright, uint8_t color[3])
   color[2] = (uint8_t)b_temp;
 }
 
+const int bsti = 1;  // Byte swap test integer
+#define is_bigendian() ( (*(char*)&bsti) == 0 )
+
+void swapbytes(void *_object, size_t _size)
+{
+   unsigned char *start, *end;
+
+   if(!is_bigendian())
+   {
+       for ( start = (unsigned char *)_object, end = start + _size - 1; start < end; ++start, --end )
+       {
+          unsigned char swap = *start;
+          *start = *end;
+          *end = swap;
+       }
+   }
+}
 
 };
