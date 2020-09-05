@@ -323,7 +323,7 @@ class lifxUdp: public Component {
   // Location UUID
   char _locationUUID[37] = "b49bed4d-77b0-05a3-9ec3-be93d9582f1f";
   // "My Home"
-  String locationLabel[32] = "My Home";
+  String locationLabel[32] = { "My Home" };
   // Updated at timestamp
   uint64_t _locationUpdated = 1553350342028441856;
 
