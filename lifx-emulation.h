@@ -321,9 +321,9 @@ class lifxUdp: public Component {
   char bulbTagLabels[LifxBulbTagLabelsLength] = "";
 
   // Location UUID
-  char _locationUUID[37] = "b49bed4d-77b0-05a3-9ec3-be93d9582f1f";
+  unsigned char _locationUUID[37] = "b49bed4d-77b0-05a3-9ec3-be93d9582f1f";
   // "My Home"
-  String locationLabel[32] = { "My Home" };
+  unsigned char locationLabel[32] = "My Home";
   // Updated at timestamp
   uint64_t _locationUpdated = 1553350342028441856;
 
@@ -369,7 +369,7 @@ void incomingUDP(AsyncUDPPacket &packet ) {
 	handleRequest(request, packet);
   }
   
-  void beginUDP( byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] = "Test" ) {
+  void beginUDP( byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] = (char *)"Test" ) {
 	// real Lifx bulbs all have a mac starting with D0:73:D5, consider changing ESP mac to spoof?
 	for(int i=0; i<6; i++){
 		mac[i] = bulbMac[i];
@@ -716,18 +716,19 @@ void handleRequest(LifxPacket &request, AsyncUDPPacket &packet) {
 	  	response.packet_type = LOCATION_STATE;
 	  	response.protocol = LifxProtocol_AllBulbsResponse;
 		byte locationUUID[16];
-		_locationUUID.getBytes(locationUUID, 16);  
+		//_locationUUID.getBytes(locationUUID, 16);  
+		memcpy( locationUUID, _locationUUID, 16);
 		uint8_t *locationUpdated = (uint8_t *)&_locationUpdated;
-		byte locationData[sizeof( _locationUUID ) + sizeof( _locationTime ) + 32];
+		byte locationData[sizeof( _locationUUID ) + sizeof( _locationUpdated ) + 32];
 		int _loc = 0;
 		for(int i=sizeof(_locationUUID); i>-1; i--) {  // work backwards
-			locationData[_loc++] = (locationData[i] << 8);
+			locationData[_loc++] = (_locationUUID[i] << 8);
 		}
 		for(int i=0; i<32; i++) {
-			locationData[_loc++] = locationLabel[i];
+			locationData[_loc++] = htonl( locationLabel[i]);
 		}
-		for(int i=sizeof(_locationTime); i>-1; i--) {  // work backwards
-			locationData[_loc++] = (locationUpdated[i] << 8);
+		for(int i=sizeof(_locationUpdated); i>-1; i--) {  // work backwards
+			locationData[_loc++] = (_locationUpdated[i] << 8);
 		}
 		memcpy(response.data, locationData, sizeof(locationData));
 		response.data_size = sizeof(locationData);
