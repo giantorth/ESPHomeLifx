@@ -658,6 +658,7 @@ public:
 			response.data_size = sizeof(authResponse);
 			sendPacket(response, packet);
 		}
+		break;
 
 		case GET_GROUP_STATE:
 		{
@@ -703,12 +704,16 @@ public:
 			response.res_ack = 0x00; // no reponse
 			// timestamp data comes from observed packet from a LIFX v1.5 bulb
 			byte MeshVersionData[] = {
-				0x00, 0x2e, 0xc3, 0x8b, 0xef, 0x30, 0x86, 0x13, //build timestamp
-				0xe0, 0x25, 0x76, 0x45, 0x69, 0x81, 0x8b, 0x13, //install timestamp
-				lowByte(LifxFirmwareVersionMinor),
-				highByte(LifxFirmwareVersionMinor),
-				lowByte(LifxFirmwareVersionMajor),
-				highByte(LifxFirmwareVersionMajor)};
+				// 0x00, 0x2e, 0xc3, 0x8b, 0xef, 0x30, 0x86, 0x13, //build timestamp
+				// 0xe0, 0x25, 0x76, 0x45, 0x69, 0x81, 0x8b, 0x13, //install timestamp
+				// lowByte(LifxFirmwareVersionMinor),
+				// highByte(LifxFirmwareVersionMinor),
+				// lowByte(LifxFirmwareVersionMajor),
+				// highByte(LifxFirmwareVersionMajor)
+				0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14,  // color 1000 build
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // color 1000 has no install timestamp
+				0x3e, 0x00, 0x65, 0x00  // color 1000 Version 6619198
+				};
 
 			memcpy(response.data, MeshVersionData, sizeof(MeshVersionData));
 			response.data_size = sizeof(MeshVersionData);
