@@ -1,6 +1,8 @@
 # ESPHomeLifx
 Port of Lifx protocol to ESPHome.io firmware.
 
+My #1 motivation in creating this was so I could host a giant light show using Light DJ (https://lightdjapp.com/).  This app gives amazing light effects and supports 128 simultaneous bulbs using the lifx lan protocol.  
+
 !!! Warning !!!
 If you add this component it should be the last item in the YAML or it might cause the ESP to crash.
 
@@ -25,6 +27,7 @@ Lots of work still todo:
 - Fake current firmware versions so app doesn't want to upgrade (Working on windows app now)
 - iOS app flickers when checking bulb status
 - Can't change bulb values with app - may use MQTT for configuration storage to avoid esp8266 flash limitations
+
 
 Debugging:
 
