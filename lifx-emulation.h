@@ -56,11 +56,11 @@ const unsigned int LifxBulbProduct = 22;
 const unsigned int LifxBulbVersion = 0;
 const unsigned int LifxFirmwareVersionMajor = 1;
 const unsigned int LifxFirmwareVersionMinor = 5;
-const unsigned int LifxMagicNum = 0;
+const unsigned int LifxMagicNum = 614500;
 
 const byte SERVICE_UDP = 0x01;
 const byte SERVICE_TCP = 0x02;
-const byte SERVICE_UDP5 = 0x05;  // Real bulbs seem to ofer this service too
+const byte SERVICE_UDP5 = 0x05; // Real bulbs seem to ofer this service too
 
 // packet types
 const byte GET_PAN_GATEWAY = 0x02;
@@ -85,9 +85,11 @@ const byte VERSION_STATE = 0x21;
 
 const byte GET_LOCATION_STATE = 0x30;
 const byte LOCATION_STATE = 0x32;
+const byte SET_LOCATION_STATE = 0x31;
 
 const byte GET_GROUP_STATE = 0x33;
 const byte GROUP_STATE = 0x35;
+const byte SET_GROUP_STATE = 0x34;
 
 const byte GET_AUTH_STATE = 0x36;
 const byte AUTH_STATE = 0x38;
@@ -113,8 +115,6 @@ const byte MESH_FIRMWARE_STATE = 0x0f;
 const byte GET_INFARED_STATE = 0x78;
 const byte STATE_INFARED_STATE = 0x79;
 const byte SET_INFARED_STATE = 0x7A;
-
-
 
 // unused eeprom defines, not working under esphome yet
 #define EEPROM_BULB_LABEL_START 0		// 32 bytes long
@@ -168,22 +168,26 @@ public:
 
 	//byte _locationUUID[] = { 0x4d, 0xed, 0x9b, 0xb4, 0xb0, 0x77, 0xa3, 0x05, 0x9e, 0xc3, 0xbe, 0x93, 0xd9, 0x58, 0x2f, 0x1f };
 
-
 	// Updated at timestamp
 	uint64_t _locationUpdated = 1553350342028441856;
 
 	// this is so fucktastically hacky
-
 	// Location UUID
 	//const _locationUUID = "b49bed4d-77b0-05a3-9ec3-be93d9582f1f";
 	// "My Home"
 	unsigned char locationLabel[32] = "My Home";
-	byte locationResponse[56] = {0x4d, 0xed, 0x9b, 0xb4, 0xb0, 0x77, 0xa3, 0x05, 0x9e, 0xc3, 0xbe, 0x93, 0xd9, 0x58, 0x2f, 0x1f, 0x4d, 0x79, 0x20, 0x48, 0x6f, 0x6d, 0x65, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xe1, 0x96, 0xcb, 0x82, 0x02, 0x59, 0x15};
-	byte groupResponse[56] = {0x29, 0xad, 0xfa, 0xd2, 0xfc, 0x9c, 0x1e, 0xbb, 0xb6, 0xd8, 0x03, 0x5a, 0xa8, 0xcb, 0xf7, 0xf2, 0x42, 0x61, 0x73, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x76, 0xf6, 0x60, 0x22, 0x90, 0x32, 0x16};
-    byte authResponse[56] = { 0xd1, 0x74, 0xef, 0x20, 0x68, 0x02, 0x4c, 0x3b, 0x94, 0xf7, 0x24, 0x71, 0x33, 0xc2, 0x98, 0x9a,
- 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
- 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
- 0x00, 0x39, 0x3b, 0x63, 0x31, 0x64, 0x5b, 0x15 };
+	byte locationResponse[56] = {0x4d, 0xed, 0x9b, 0xb4, 0xb0, 0x77, 0xa3, 0x05, 0x9e, 0xc3, 0xbe, 0x93, 0xd9, 0x58, 0x2f, 0x1f, 
+								 0x4d, 0x79, 0x20, 0x48, 0x6f, 0x6d, 0x65, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+								 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+								 0x00, 0xe1, 0x96, 0xcb, 0x82, 0x02, 0x59, 0x15};
+	byte groupResponse[56]    = {0x29, 0xad, 0xfa, 0xd2, 0xfc, 0x9c, 0x1e, 0xbb, 0xb6, 0xd8, 0x03, 0x5a, 0xa8, 0xcb, 0xf7, 0xf2, 
+								 0x42, 0x61, 0x73, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+								 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+								 0x00, 0x76, 0xf6, 0x60, 0x22, 0x90, 0x32, 0x16};
+	byte authResponse[56]     = {0xd1, 0x74, 0xef, 0x20, 0x68, 0x02, 0x4c, 0x3b, 0x94, 0xf7, 0x24, 0x71, 0x33, 0xc2, 0x98, 0x9a,
+								 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+							 	 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+							 	 0x00, 0x39, 0x3b, 0x63, 0x31, 0x64, 0x5b, 0x15};
 
 	// Should probably check if wifi is up first before doing this
 	AsyncUDP Udp;
@@ -193,6 +197,58 @@ public:
 		// moved to beginUDP()
 	}
 
+	void beginUDP(byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] = (char *)"Test")
+	{
+		// real Lifx bulbs all have a mac starting with D0:73:D5, consider changing ESP mac to spoof?
+		for (int i = 0; i < 6; i++)
+		{
+			// why???
+			mac[i] = bulbMac[i];
+		}
+ 
+		debug_print(F("Setting Light Name: "));
+		debug_println(lifxLightName);
+		for (int j = 0; j < strlen(lifxLightName); j++)
+		{
+			// again why??
+			bulbLabel[j] = lifxLightName[j];
+		}
+		debug_println(bulbLabel);
+
+		// start listening for packets
+		bool block = 0;
+		long pNo = 0;
+		if (Udp.listen(LifxPort))
+		{
+			ESP_LOGD("LIFXUDP", "Listerner Enabled");
+			Udp.onPacket(
+				[&](AsyncUDPPacket &packet) {
+					long packetTime = millis();
+					// int might not be adequate here
+					
+					uint32_t packetSize = packet.length();
+					if (packetSize)
+					{ //ignore empty packets?  Needed?
+						incomingUDP(packet);
+					}
+					Serial.print(F("Total Packet handling time: "));
+					Serial.println(millis() - packetTime);
+				});
+		}
+		//TODO: TCP support necessary?
+		//TcpServer.begin();
+		setLight(); // will turn light on at boot
+	}
+
+	void loop() override
+	{
+		//todo stuff, unneeded for async services
+	}
+
+	/******************************************************************************************************************
+	 * incomingUDP
+	 * This function is called on all incoming UDP packets
+	******************************************************************************************************************/
 	void incomingUDP(AsyncUDPPacket &packet)
 	{
 		int packetSize = packet.length();
@@ -231,49 +287,6 @@ public:
 
 		//respond to the request.
 		handleRequest(request, packet);
-	}
-
-	void beginUDP(byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] = (char *)"Test")
-	{
-		// real Lifx bulbs all have a mac starting with D0:73:D5, consider changing ESP mac to spoof?
-		for (int i = 0; i < 6; i++)
-		{
-			mac[i] = bulbMac[i];
-		}
-		debug_print(F("Setting Light Name: "));
-		debug_println(lifxLightName);
-		for (int j = 0; j < strlen(lifxLightName); j++)
-		{
-			bulbLabel[j] = lifxLightName[j];
-		}
-		debug_println(bulbLabel);
-
-		// start listening for packets
-		bool block = 0;
-		long pNo = 0;
-		if (Udp.listen(LifxPort))
-		{
-			ESP_LOGD("LIFXUDP", "Listerner Enabled");
-			Udp.onPacket(
-				[&](AsyncUDPPacket &packet) {
-					long packetTime = millis();
-					int packetSize = packet.length();
-					if (packetSize)
-					{ //ignore empty packets?  Needed?
-						incomingUDP(packet);
-					}
-					Serial.print(F("Total Packet handling time: "));
-					Serial.println(millis() - packetTime);
-				});
-		}
-		//TODO: TCP support necessary?
-		//TcpServer.begin();
-		setLight(); // will turn light on at boot
-	}
-
-	void loop() override
-	{
-		//todo stuff, unneeded for async services
 	}
 
 	void processRequest(byte *packetBuffer, float packetSize, LifxPacket &request)
@@ -345,10 +358,23 @@ public:
 				highByte(LifxPort),
 				0x00,
 				0x00};
+			byte UDPdata5[] = {
+				SERVICE_UDP5, //UDP
+				lowByte(LifxPort),
+				highByte(LifxPort),
+				0x00,
+				0x00};
 
+			// A real bulb seems to respond multiple times, once as service type 5
 			memcpy(response.data, UDPdata, sizeof(UDPdata));
 			response.data_size = sizeof(UDPdata);
 			sendPacket(response, packet);
+			memcpy(response.data, UDPdata5, sizeof(UDPdata));
+			response.data_size = sizeof(UDPdata);
+			sendPacket(response, packet);
+			// memcpy(response.data, UDPdata, sizeof(UDPdata));
+			// response.data_size = sizeof(UDPdata);
+			// sendPacket(response, packet);
 		}
 		break;
 
@@ -422,9 +448,10 @@ public:
 
 		case GET_LIGHT_STATE:
 		{
+			response.res_ack = 0x00; // no response/ack
 			// send the light's state
 			response.packet_type = LIGHT_STATUS;
-			response.protocol = LifxProtocol_BulbCommand; // home assistnat crashes if you use all bulb response here
+			response.protocol = LifxProtocol_AllBulbsResponse;// LifxProtocol_BulbCommand; // home assisstant crashes if you use all bulb response here
 			byte StateData[] = {
 				lowByte(hue),			//hue
 				highByte(hue),			//hue
@@ -479,7 +506,8 @@ public:
 				lowByte(bulbTags[4]),
 				lowByte(bulbTags[5]),
 				lowByte(bulbTags[6]),
-				lowByte(bulbTags[7])};
+				lowByte(bulbTags[7])
+				};
 
 			memcpy(response.data, StateData, sizeof(StateData));
 			response.data_size = sizeof(StateData);
@@ -710,10 +738,10 @@ public:
 				// highByte(LifxFirmwareVersionMinor),
 				// lowByte(LifxFirmwareVersionMajor),
 				// highByte(LifxFirmwareVersionMajor)
-				0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14,  // color 1000 build
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // color 1000 has no install timestamp
-				0x3e, 0x00, 0x65, 0x00  // color 1000 Version 6619198
-				};
+				0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14, // color 1000 build
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // color 1000 has no install timestamp
+				0x3e, 0x00, 0x65, 0x00							// color 1000 Version 6619198
+			};
 
 			memcpy(response.data, MeshVersionData, sizeof(MeshVersionData));
 			response.data_size = sizeof(MeshVersionData);
@@ -729,24 +757,25 @@ public:
 			response.res_ack = 0x01; // Match real bulb reponse
 			// timestamp data comes from observed packet from a LIFX v1.5 bulb
 			byte WifiVersionData[] = {
-				//0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, //build timestamp
-				//0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, //dupe timestamp?
-
 				// Original 1000 values
 				//0x00, 0xc8, 0x5e, 0x31, 0x99, 0x51, 0x86, 0x13, // Original 1000 (1) bulb build timestamp 1406901652000000000
 				//0xc0, 0x0c, 0x07, 0x00, 0x48, 0x46, 0xd9, 0x43, // Original 1000 (1) firmware reserved value 0x43d9464800070cc0
 				//0x05, 0x00, 0x01, 0x00							// Original 1000 (1) Version 65541
+
+				// Sometimes the Color 1000 spits out these values instead of the ones below ?!?!
+				//0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, //build timestamp 1502237570000000000
+				//0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, //dupe timestamp? 0x14d9051c58189400
+				//0x16, 0x00, 0x01, 0x00 // Version 65558
+
+				0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14, // color 1000 build 1456093684000000000
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // color 1000 has no install timestamp
+				0x3e, 0x00, 0x65, 0x00							// color 1000 Version 6619198
 
 				//lowByte(LifxFirmwareVersionMinor),
 				//highByte(LifxFirmwareVersionMinor),
 				//lowByte(LifxFirmwareVersionMajor),
 				//highByte(LifxFirmwareVersionMajor)
 
-				0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14,  // color 1000 build
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // color 1000 has no install timestamp
-				0x3e, 0x00, 0x65, 0x00  // color 1000 Version 6619198
-
-				//0x16, 0x00, 0x01, 0x00 // Version 65558
 			};
 
 			memcpy(response.data, WifiVersionData, sizeof(WifiVersionData));
@@ -769,9 +798,11 @@ public:
 	unsigned int sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi)
 	{
 		int totalSize = LifxPacketSize + pkt.data_size;
-		auto time = ha_time->now();
-		uint64_t packetT = swap_uint64( (uint64_t)(((uint64_t)time.timestamp * 1000) * 1000000) ); // + LifxMagicNum;
-		//swapbytes( &packetT, sizeof(packetT) );
+
+		auto time = ha_time->utcnow();
+		// generate a msec value from epoch
+		uint64_t packetT = (uint64_t)(((uint64_t)time.timestamp * 1000) * 1000000 + LifxMagicNum);
+		// break up large value for packet handling
 		uint8_t *packetTime = (uint8_t *)&packetT;
 
 		//debug_println( packetT );
@@ -820,22 +851,22 @@ public:
 
 		//// PROTOCOL HEADER
 		// real bulbs send epoch time in msec ...  docs say "reserved"
-		_message[_packetLength++] = (lowByte(packetTime[7]));
-		_message[_packetLength++] = (lowByte(packetTime[6]));
-		_message[_packetLength++] = (lowByte(packetTime[5]));
-		_message[_packetLength++] = (lowByte(packetTime[4]));
-		_message[_packetLength++] = (lowByte(packetTime[3]));
-		_message[_packetLength++] = (lowByte(packetTime[2]));
-		_message[_packetLength++] = (lowByte(packetTime[1]));
 		_message[_packetLength++] = (lowByte(packetTime[0]));
+		_message[_packetLength++] = (lowByte(packetTime[1]));
+		_message[_packetLength++] = (lowByte(packetTime[2]));
+		_message[_packetLength++] = (lowByte(packetTime[3]));
+		_message[_packetLength++] = (lowByte(packetTime[4]));
+		_message[_packetLength++] = (lowByte(packetTime[5]));
+		_message[_packetLength++] = (lowByte(packetTime[6]));
+		_message[_packetLength++] = (lowByte(packetTime[7]));
 
 		//packet type
 		_message[_packetLength++] = (lowByte(pkt.packet_type));
 		_message[_packetLength++] = (highByte(pkt.packet_type));
 
-		// reserved4 
+		// reserved4
 		// This number gets twiddled in the stateService response from a real bulb... sometimes.... other time stays zero
-		// 0 0 0 0 0 8 10 12 12 7 6 6 4 0 
+		// 0 0 0 0 0 8 10 12 12 7 6 6 4 0
 		_message[_packetLength++] = (lowByte(0x00));
 		_message[_packetLength++] = (lowByte(0x00));
 
@@ -1112,7 +1143,7 @@ public:
 
 	// 	return byteStr;
 	// }
-	
+
 	uint64_t swap_uint64(uint64_t val)
 	{
 		val = ((val << 8) & 0xFF00FF00FF00FF00U) | ((val >> 8) & 0x00FF00FF00FF00FFU);
