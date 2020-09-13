@@ -86,9 +86,9 @@ light:
     
 custom_component:
 - lambda: |-
-    char lightName[32] = "YOUR LIGHT NAME HERE";  // max 32 characters
-    byte mac[6];
-    WiFi.macAddress(mac);
+    const _locationUUID = "012d3356-bb39-4b1d-aa60-1466b992ca62";  
+    uint64_t _locationUpdated = 1553350342028441856;
+    
     auto lifxUdpSupport = new lifxUdp();
-    lifxUdpSupport->beginUDP(mac, lightName);
+    lifxUdpSupport->beginUDP((byte *)WiFi.macAddress().c_str(), (char *)App.get_name().c_str());
     return {lifxUdpSupport};
