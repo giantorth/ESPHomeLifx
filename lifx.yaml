@@ -83,12 +83,17 @@ light:
     warm_white: P2
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
-    
+
+# need UTC time to respond to packets correctly.  Expects name of ha_time in code.
+time:
+  - platform: sntp
+    id: ha_time
+
+# Required component for lifx support
 custom_component:
 - lambda: |-
-    const _locationUUID = "012d3356-bb39-4b1d-aa60-1466b992ca62";  
-    uint64_t _locationUpdated = 1553350342028441856;
-    
+    byte mac[6];
+    WiFi.macAddress(mac);
     auto lifxUdpSupport = new lifxUdp();
-    lifxUdpSupport->beginUDP((byte *)WiFi.macAddress().c_str(), (char *)App.get_name().c_str());
+    lifxUdpSupport->beginUDP(mac, (char *)App.get_name().c_str());
     return {lifxUdpSupport};

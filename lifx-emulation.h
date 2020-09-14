@@ -62,6 +62,17 @@ const byte SERVICE_UDP = 0x01;
 const byte SERVICE_TCP = 0x02;
 const byte SERVICE_UDP5 = 0x05; // Real bulbs seem to ofer this service too
 
+//incoming packet RES/ACK values
+const byte RES_REQUIRED = 0x05;
+const byte ACK_REQUIRED = 0x06;
+const byte RES_ACK_REQUIRED = 0x00; // unknown value, no real packets seem to set both
+
+// outgoing packet RES/ACK values
+const byte NO_RES_NO_ACK = 0x00;  
+const byte RES_NO_ACK = 0x01; // Real bulb repsonse for STATE_
+const byte NO_RES_ACK = 0x02; 
+const byte RES_ACK = 0x03;
+
 // packet types
 const byte GET_PAN_GATEWAY = 0x02;
 const byte PAN_GATEWAY = 0x03; // stateService
@@ -83,12 +94,14 @@ const byte BULB_LABEL = 0x19;
 const byte GET_VERSION_STATE = 0x20;
 const byte VERSION_STATE = 0x21;
 
+const byte ACKNOWLEDGEMENT = 0x2d;
+
 const byte GET_LOCATION_STATE = 0x30;
 const byte LOCATION_STATE = 0x32;
 const byte SET_LOCATION_STATE = 0x31;
 
 const byte GET_GROUP_STATE = 0x33;
-const byte GROUP_STATE = 0x35;
+const byte GROUP_STATE = 0x35; // stateGroup(53) - res_required
 const byte SET_GROUP_STATE = 0x34;
 
 const byte GET_AUTH_STATE = 0x36;
@@ -104,7 +117,7 @@ const byte BULB_TAG_LABELS = 0x1f;
 
 const byte GET_LIGHT_STATE = 0x65; //101
 const byte SET_LIGHT_STATE = 0x66;
-const byte LIGHT_STATUS = 0x6b;
+const byte LIGHT_STATUS = 0x6b; // STATE(107) - res_required
 
 const byte SET_WAVEFORM = 0x67;
 const byte SET_WAVEFORM_OPTIONAL = 0x77;
@@ -199,11 +212,15 @@ public:
 
 	void beginUDP(byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] = (char *)"Test")
 	{
+		debug_print( "Setting MAC: ");
+		//debug_println( bulbMac, HEX);
+		//(byte *)WiFi.macAddress();
 		// real Lifx bulbs all have a mac starting with D0:73:D5, consider changing ESP mac to spoof?
 		for (int i = 0; i < 6; i++)
 		{
 			// why???
 			mac[i] = bulbMac[i];
+			debug_println( bulbMac[i], HEX);
 		}
  
 		debug_print(F("Setting Light Name: "));
@@ -339,9 +356,12 @@ public:
 		{
 			response.source[x] = request.source[x];
 		}
+		response.sequence = request.sequence;
+
 		switch (request.packet_type)
 		{
-			response.res_ack = 0x01;
+			// default to no RES/ACK on packet
+			response.res_ack = NO_RES_NO_ACK;
 
 		case GET_PAN_GATEWAY:
 		{
@@ -351,7 +371,7 @@ public:
 			// respond with the UDP port
 			response.packet_type = PAN_GATEWAY;
 			response.protocol = LifxProtocol_AllBulbsResponse;
-			response.res_ack = 0x00; // no response/ack
+			response.res_ack = RES_NO_ACK;
 			byte UDPdata[] = {
 				SERVICE_UDP, //UDP
 				lowByte(LifxPort),
@@ -528,11 +548,14 @@ public:
 			}
 
 			// respond to both get and set commands
-			response.packet_type = POWER_STATE;
+			// real bulbs send an ACK now instead of this packet?
+			//response.packet_type = POWER_STATE;
+			response.packet_type = ACKNOWLEDGEMENT;
 			response.protocol = LifxProtocol_AllBulbsResponse;
 			byte PowerData[] = {
-				lowByte(power_status),
-				highByte(power_status)};
+				//lowByte(power_status),
+				//highByte(power_status)
+				};
 
 			memcpy(response.data, PowerData, sizeof(PowerData));
 			response.data_size = sizeof(PowerData);
@@ -619,6 +642,7 @@ public:
 		{
 			/* this section can get fucked */
 			response.packet_type = LOCATION_STATE;
+			response.res_ack = RES_NO_ACK;
 			response.protocol = LifxProtocol_AllBulbsResponse;
 
 			// byte locationUUID[16];
@@ -681,6 +705,7 @@ public:
 		case GET_AUTH_STATE:
 		{
 			response.packet_type = AUTH_STATE;
+			response.res_ack = RES_NO_ACK;
 			response.protocol = LifxProtocol_AllBulbsResponse;
 			memcpy(response.data, authResponse, sizeof(authResponse));
 			response.data_size = sizeof(authResponse);
@@ -691,6 +716,7 @@ public:
 		case GET_GROUP_STATE:
 		{
 			response.packet_type = GROUP_STATE;
+			response.res_ack = RES_NO_ACK;
 			response.protocol = LifxProtocol_AllBulbsResponse;
 			memcpy(response.data, groupResponse, sizeof(groupResponse));
 			response.data_size = sizeof(groupResponse);
@@ -729,18 +755,21 @@ public:
 			// respond to get command
 			response.packet_type = MESH_FIRMWARE_STATE;
 			response.protocol = LifxProtocol_AllBulbsResponse;
-			response.res_ack = 0x00; // no reponse
+			response.res_ack = RES_NO_ACK;
 			// timestamp data comes from observed packet from a LIFX v1.5 bulb
 			byte MeshVersionData[] = {
+				0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 build 1502237570000000000
+				0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 reserved 0x14d9051c58189400
+				0x16, 0x00, 0x01, 0x00 // color 1000 Version 65558
 				// 0x00, 0x2e, 0xc3, 0x8b, 0xef, 0x30, 0x86, 0x13, //build timestamp
 				// 0xe0, 0x25, 0x76, 0x45, 0x69, 0x81, 0x8b, 0x13, //install timestamp
 				// lowByte(LifxFirmwareVersionMinor),
 				// highByte(LifxFirmwareVersionMinor),
 				// lowByte(LifxFirmwareVersionMajor),
 				// highByte(LifxFirmwareVersionMajor)
-				0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14, // color 1000 build
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // color 1000 has no install timestamp
-				0x3e, 0x00, 0x65, 0x00							// color 1000 Version 6619198
+				//0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14, // color 1000 build
+				//0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // color 1000 has no install timestamp
+				//0x3e, 0x00, 0x65, 0x00							// color 1000 Version 6619198
 			};
 
 			memcpy(response.data, MeshVersionData, sizeof(MeshVersionData));
@@ -754,7 +783,7 @@ public:
 			// respond to get command
 			response.packet_type = WIFI_FIRMWARE_STATE;
 			response.protocol = LifxProtocol_AllBulbsResponse;
-			response.res_ack = 0x01; // Match real bulb reponse
+			response.res_ack = RES_NO_ACK;
 			// timestamp data comes from observed packet from a LIFX v1.5 bulb
 			byte WifiVersionData[] = {
 				// Original 1000 values
@@ -793,6 +822,43 @@ public:
 		}
 		break;
 		}
+
+		/*
+		// should we RES/ACK?
+		switch (request.res_ack)
+		{
+			case NO_RES_NO_ACK:
+			{
+				// nothing
+			}
+			break;
+			case RES_NO_ACK:
+			{
+				// Need to figure out if this matters
+			}
+			break; 
+			case NO_RES_ACK:
+			{
+				break;
+				// We are supposed to acknoledge the packet
+				response.packet_type = ACKNOWLEDGEMENT;
+				response.res_ack = NO_RES_NO_ACK;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				response.data = 0;
+				response.data_size = 0;
+				sendPacket(response, packet);
+
+			}
+			break; 
+
+			default:
+			{ 
+				// unknown packet type
+			}
+
+		}
+		*/
+
 	}
 
 	unsigned int sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi)
@@ -846,11 +912,11 @@ public:
 		// reserved3: Flags - 6 bits reserved, 1bit ack required, 1bit res required
 		_message[_packetLength++] = (lowByte(pkt.res_ack));
 
-		// Sequence, unimplemented
-		_message[_packetLength++] = (lowByte(0x00));
+		// Sequence.  Real bulbs seem to match the incoming value
+		_message[_packetLength++] = (lowByte(pkt.sequence)); 
 
 		//// PROTOCOL HEADER
-		// real bulbs send epoch time in msec ...  docs say "reserved"
+		// real bulbs send epoch time in msec plus some strange fixed value (lifxMagicNum?) ...  docs say "reserved"
 		_message[_packetLength++] = (lowByte(packetTime[0]));
 		_message[_packetLength++] = (lowByte(packetTime[1]));
 		_message[_packetLength++] = (lowByte(packetTime[2]));
