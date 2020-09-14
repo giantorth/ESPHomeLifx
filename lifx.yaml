@@ -83,7 +83,13 @@ light:
     warm_white: P2
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
-    
+
+# need UTC time to respond to packets correctly.  Expects name of ha_time in code.
+time:
+  - platform: sntp
+    id: ha_time
+
+# Required component for lifx support
 custom_component:
 - lambda: |-
     byte mac[6];
