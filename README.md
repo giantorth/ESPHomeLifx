@@ -19,13 +19,13 @@ Working:
 - Can detect and control HSBK values from offical Lifx app
 - LightDJ will detect and control light also
 - Detected by lifxlan python library
-- Windows Lifx software now believes this is an up-to-date Color 1000 bulb
+- Lifx software now believes this is an up-to-date Color 1000 bulb
+- Home Assistant can detect and control bulbs
 
 Lots of work still todo:
 
-- Home Assistant unable to detect bulbs, need to get wireshark involved
-- Fake current firmware versions so app doesn't want to upgrade (Working on windows app now)
-- iOS app flickers when checking bulb status
+- Takes a long time to detect with iOS app and appear in correct group
+- Hardcoded Location/Group values ("My Home" and "Basement" respectively at this time)
 - Can't change bulb values with app - may use MQTT for configuration storage to avoid esp8266 flash limitations
 
 
