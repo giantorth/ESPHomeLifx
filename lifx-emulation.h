@@ -549,11 +549,13 @@ public:
 
 			// respond to both get and set commands
 			// real bulbs send an ACK now instead of this packet?
-			response.packet_type = POWER_STATE;
+			//response.packet_type = POWER_STATE;
+			response.packet_type = ACKNOWLEDGEMENT;
 			response.protocol = LifxProtocol_AllBulbsResponse;
 			byte PowerData[] = {
-				lowByte(power_status),
-				highByte(power_status)};
+				//lowByte(power_status),
+				//highByte(power_status)
+				};
 
 			memcpy(response.data, PowerData, sizeof(PowerData));
 			response.data_size = sizeof(PowerData);
@@ -756,15 +758,18 @@ public:
 			response.res_ack = RES_NO_ACK;
 			// timestamp data comes from observed packet from a LIFX v1.5 bulb
 			byte MeshVersionData[] = {
+				0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 build 1502237570000000000
+				0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 reserved 0x14d9051c58189400
+				0x16, 0x00, 0x01, 0x00 // color 1000 Version 65558
 				// 0x00, 0x2e, 0xc3, 0x8b, 0xef, 0x30, 0x86, 0x13, //build timestamp
 				// 0xe0, 0x25, 0x76, 0x45, 0x69, 0x81, 0x8b, 0x13, //install timestamp
 				// lowByte(LifxFirmwareVersionMinor),
 				// highByte(LifxFirmwareVersionMinor),
 				// lowByte(LifxFirmwareVersionMajor),
 				// highByte(LifxFirmwareVersionMajor)
-				0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14, // color 1000 build
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // color 1000 has no install timestamp
-				0x3e, 0x00, 0x65, 0x00							// color 1000 Version 6619198
+				//0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14, // color 1000 build
+				//0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // color 1000 has no install timestamp
+				//0x3e, 0x00, 0x65, 0x00							// color 1000 Version 6619198
 			};
 
 			memcpy(response.data, MeshVersionData, sizeof(MeshVersionData));
