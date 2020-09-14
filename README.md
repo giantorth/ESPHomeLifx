@@ -26,7 +26,6 @@ Lots of work still todo:
 
 - Takes a long time to detect with iOS app and appear in correct group
 - Hardcoded Location/Group values ("My Home" and "Basement" respectively at this time)
-- iOS app flickers when checking bulb status
 - Can't change bulb values with app - may use MQTT for configuration storage to avoid esp8266 flash limitations
 
 
