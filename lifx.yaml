@@ -2,6 +2,7 @@ esphome:
   name: lifxtest
   platform: ESP8266
   board: d1_mini
+  # Required for LIFX LAN support
   includes:
     - lifx-emulation.h
   platformio_options:
@@ -68,6 +69,7 @@ output:
     min_power: 0
     max_power: 1
 
+# Lifx emulation needs two discrete elements to control as coded below
 light:
   - platform: rgb
     id: color_led
@@ -84,12 +86,12 @@ light:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
 
-# need UTC time to respond to packets correctly.  Expects name of ha_time in code.
+# Lifx emulation needs UTC time to respond to packets correctly.  Code expects id: ha_time.
 time:
   - platform: sntp
     id: ha_time
 
-# Required component for lifx support
+# Required component for Lifx support
 custom_component:
 - lambda: |-
     byte mac[6];
