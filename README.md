@@ -4,17 +4,18 @@ Port of Lifx LAN <https://lan.developer.lifx.com/docs/introduction> protocol to 
 
 My #1 motivation in creating this was so I could host a giant light show using Light DJ (<https://lightdjapp.com/>).  This app gives amazing light effects and supports 128 simultaneous bulbs using this UDP protocol.  
 
-!!! Warning !!!
+## !!! Warning
+
 If you add this component it should be the last item in the YAML or it might cause the ESP to crash if wifi has not yet been initalized.
 
-Instructions:
+## Instructions
 
 - A sample bulb YAML is provided for ESPHome configuration
   - Light name will be same as Esphome name
   - Code expects you to have a 'white_led' and a 'color_led' device to control
-- place lifx-emulation.h in your esphome folder (where all configs are located)
+- Place lifx-emulation.h in your esphome folder (where all configs are located)
 
-Supported Applications:
+## Supported Applications
 
 - Official Lifx Windows/iOS app control (Android not tested)
   - Bulbs may not appear instantly when loading the mobile app
@@ -24,7 +25,7 @@ Supported Applications:
   - Detected automatically with Lifx integration
 - Compatability should be good enough for 3rd party applications
 
-Working/Implemented:
+## Working/Implemented
 
 - Firmware reports itself as an up-to-date Color 1000 model bulb
   - Running on <https://www.costco.com/feit-electric-wi-fi-smart-bulbs%2c-4-pack.product.100417461.html>
@@ -35,7 +36,7 @@ Working/Implemented:
 - Appears in a (hardcoded) Location/Group for supported applications
 - Bulb can still integrate with DiyHue esphome text sensor controls <https://github.com/diyhue/Lights/tree/master/ESPHome>
 
-Lots of work still todo:
+## Lots of work still todo
 
 - Takes a some time to detect bulbs with iOS app and appear in group
   - I have over 20 bulbs running this firmware, untested at lower counts to see if detection time is linear
@@ -49,10 +50,11 @@ Lots of work still todo:
 - Real bulb MAC addresses all start with D0:73:D5, haven't tried mirroring this to see if behavior changes
 - Waveform bulb effects are not supported yet <https://lan.developer.lifx.com/docs/waveforms>
 
-Debugging:
+## Debugging
 
 - Serial console will output all in/out packet contents in HEX
 - WILL CRASH A DEVICE WITHOUT A SERIAL PORT TO USE
   - Last time I tried to turn off serial logging the device failed to boot, haven't tried again
+- Pull apart packets with Wireshark <https://github.com/mab5vot9us9a/WiresharkLIFXDissector>
 
 Code used from <https://github.com/area3001/esp8266_lifx>
