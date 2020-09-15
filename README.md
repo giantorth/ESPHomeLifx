@@ -1,8 +1,12 @@
 # ESPHomeLifx
 
-Port of Lifx LAN <https://lan.developer.lifx.com/docs/introduction> protocol to <https://ESPHome.io> firmware.  
+Port of Lifx LAN <https://lan.developer.lifx.com/docs/introduction> UDP protocol to <https://ESPHome.io> firmware.  
 
-My #1 motivation in creating this was so I could host a giant light show using Light DJ (<https://lightdjapp.com/>).  This app gives amazing light effects and supports 128 simultaneous bulbs using this UDP protocol.  
+My #1 motivation in creating this was so I could host a giant light show using Light DJ (<https://lightdjapp.com/>).  This app gives amazing light effects and supports up to 128 simultaneous bulbs using this protocol.  
+
+The other motivation for this project is Esphome integration with Home Assistant is somewhat clunky and requires integration with each device.  Bulbs running this protocol will all be detected automatically by the Lifx integration and do not need to be configured indiviually.
+
+This firmware is otherwise stable (thanks Esphome!) and I have had bulbs running for nearly a year without issue.
 
 ## !!! Warning
 
@@ -20,7 +24,8 @@ If you add this component it should be the last item in the YAML or it might cau
 - Official Lifx Windows/iOS app control (Android not tested)
   - Bulbs may not appear instantly when loading the mobile app
 - LightDJ (<https://lightdjapp.com/>)
-  - High speed music-reactive light shows
+  - High speed music-reactive light shows for up to 128 lights (Philips Hue can only do 10 bulbs in entertainment mode!)
+  - Party-tested with 35 lights running for hours without issue
 - HomeAssistant (<https://www.home-assistant.io/>)
   - Detected automatically with Lifx integration
 - Compatability should be good enough for 3rd party applications
@@ -39,7 +44,8 @@ If you add this component it should be the last item in the YAML or it might cau
 ## Lots of work still todo
 
 - Takes a some time to detect bulbs with iOS app and appear in group
-  - I have over 20 bulbs running this firmware, untested at lower counts to see if detection time is linear
+  - I have over 20 custom bulbs (and another ~15 real bulbs) running this firmware, untested at lower counts to see if detection time is linear
+  - Software seems to cache official bulbs better, even ones not connected to cloud
 - No Lifx Cloud support
   - Required for Alexa/Google Home integration.  Use Home Assisistant or DiyHue instead?  
 - Hardcoded Location/Group values ("My Home" and "Basement" respectively at this time)
