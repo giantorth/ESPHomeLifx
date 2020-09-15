@@ -36,7 +36,7 @@ If you add this component it should be the last item in the YAML or it might cau
   - Running on <https://www.costco.com/feit-electric-wi-fi-smart-bulbs%2c-4-pack.product.100417461.html>
   - Flashed with Tuya-convert <https://github.com/ct-Open-Source/tuya-convert>
     - Warning newer firmware may not be OTA flashable (requires dissambly and soldering)
-- Asynchronous UDP packet support for high-speed light show effects (~20ms between changes at full speed)
+- Asynchronous UDP packet support for high-speed light show effects (~20ms between changes with debugging on, ~2ms with serial debugging off)
 - Responses should mostly be identical to real bulb
 - Appears in a (hardcoded) Location/Group for supported applications
 - Bulb can still integrate with DiyHue esphome text sensor controls <https://github.com/diyhue/Lights/tree/master/ESPHome>
@@ -55,12 +55,11 @@ If you add this component it should be the last item in the YAML or it might cau
   - Currently not checking MAC target for correct hit or broadcast either
 - Real bulb MAC addresses all start with D0:73:D5, haven't tried mirroring this to see if behavior changes
 - Waveform bulb effects are not supported yet <https://lan.developer.lifx.com/docs/waveforms>
+- Setting/Restoring state on boot not working properly yet
 
 ## Debugging
 
 - Serial console will output all in/out packet contents in HEX
-- WILL CRASH A DEVICE WITHOUT A SERIAL PORT TO USE
-  - Last time I tried to turn off serial logging the device failed to boot, haven't tried again
 - Pull apart packets with Wireshark <https://github.com/mab5vot9us9a/WiresharkLIFXDissector>
 
 Code used from <https://github.com/area3001/esp8266_lifx>
