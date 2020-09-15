@@ -55,5 +55,6 @@ If you add this component it should be the last item in the YAML or it might cau
 - Serial console will output all in/out packet contents in HEX
 - WILL CRASH A DEVICE WITHOUT A SERIAL PORT TO USE
   - Last time I tried to turn off serial logging the device failed to boot, haven't tried again
+- Pull apart packets with Wireshark <https://github.com/mab5vot9us9a/WiresharkLIFXDissector>
 
 Code used from <https://github.com/area3001/esp8266_lifx>
