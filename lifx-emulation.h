@@ -1,7 +1,7 @@
 #include "esphome.h"
 #include <ESPAsyncUDP.h>
 
-#define DEBUG2
+#define DEBUG
 
 #ifdef DEBUG
 #define debug_print(x, ...) Serial.print(x, ##__VA_ARGS__)
@@ -48,7 +48,6 @@ const unsigned int LifxBulbLabelLength = 32;
 const unsigned int LifxBulbTagsLength = 8;
 const unsigned int LifxBulbTagLabelsLength = 32;
 #define LIFX_MAX_PACKET_LENGTH 512
-//debugging?
 
 // firmware versions, etc
 const unsigned int LifxBulbVendor = 1;
@@ -68,17 +67,17 @@ const byte ACK_REQUIRED = 0x06;
 const byte RES_ACK_REQUIRED = 0x00; // unknown value, no real packets seem to set both
 
 // outgoing packet RES/ACK values
-const byte NO_RES_NO_ACK = 0x00;  
+const byte NO_RES_NO_ACK = 0x00;
 const byte RES_NO_ACK = 0x01; // Real bulb repsonse for STATE_
-const byte NO_RES_ACK = 0x02; 
+const byte NO_RES_ACK = 0x02;
 const byte RES_ACK = 0x03;
 
 // packet types
 const byte GET_PAN_GATEWAY = 0x02;
-const byte PAN_GATEWAY = 0x03; // stateService
+const byte PAN_GATEWAY = 0x03; // stateService(3)
 
-const byte GET_WIFI_FIRMWARE_STATE = 0x12;
-const byte WIFI_FIRMWARE_STATE = 0x13;
+const byte GET_WIFI_FIRMWARE_STATE = 0x12; // getWifiFirmware(18)
+const byte WIFI_FIRMWARE_STATE = 0x13;  // stateWifiFirmware(19)
 
 const byte GET_POWER_STATE = 0x14;
 const byte GET_POWER_STATE2 = 0x74;
@@ -91,20 +90,20 @@ const byte GET_BULB_LABEL = 0x17;
 const byte SET_BULB_LABEL = 0x18;
 const byte BULB_LABEL = 0x19;
 
-const byte GET_VERSION_STATE = 0x20;
-const byte VERSION_STATE = 0x21;
+const byte GET_VERSION_STATE = 0x20; // getVersion(32)
+const byte VERSION_STATE = 0x21; // stateVersion(33)
 
 const byte ACKNOWLEDGEMENT = 0x2d;
 
-const byte GET_LOCATION_STATE = 0x30;
-const byte LOCATION_STATE = 0x32;
+const byte GET_LOCATION_STATE = 0x30;  // getLocation(48)
 const byte SET_LOCATION_STATE = 0x31;
+const byte LOCATION_STATE = 0x32; // stateLocation(50)
 
-const byte GET_GROUP_STATE = 0x33;
+const byte GET_GROUP_STATE = 0x33;  // getGroup(51)
+const byte SET_GROUP_STATE = 0x34;  // setGroup(52)
 const byte GROUP_STATE = 0x35; // stateGroup(53) - res_required
-const byte SET_GROUP_STATE = 0x34;
 
-const byte GET_AUTH_STATE = 0x36;
+const byte GET_AUTH_STATE = 0x36; // Mystery packets queried first by apps, need to add to wireshark plugin
 const byte AUTH_STATE = 0x38;
 
 const byte GET_BULB_TAGS = 0x1a;
@@ -115,28 +114,19 @@ const byte GET_BULB_TAG_LABELS = 0x1d;
 const byte SET_BULB_TAG_LABELS = 0x1e;
 const byte BULB_TAG_LABELS = 0x1f;
 
-const byte GET_LIGHT_STATE = 0x65; //101
-const byte SET_LIGHT_STATE = 0x66;
-const byte LIGHT_STATUS = 0x6b; // STATE(107) - res_required
+const byte GET_LIGHT_STATE = 0x65; // get(101)
+const byte SET_LIGHT_STATE = 0x66; 
+const byte LIGHT_STATUS = 0x6b; // state(107) - res_required
 
 const byte SET_WAVEFORM = 0x67;
 const byte SET_WAVEFORM_OPTIONAL = 0x77;
 
-const byte GET_MESH_FIRMWARE_STATE = 0x0e;
+const byte GET_MESH_FIRMWARE_STATE = 0x0e;  //getHostFirmware(14)
 const byte MESH_FIRMWARE_STATE = 0x0f;
 
 const byte GET_INFARED_STATE = 0x78;
 const byte STATE_INFARED_STATE = 0x79;
 const byte SET_INFARED_STATE = 0x7A;
-
-// unused eeprom defines, not working under esphome yet
-#define EEPROM_BULB_LABEL_START 0		// 32 bytes long
-#define EEPROM_BULB_TAGS_START 32		// 8 bytes long
-#define EEPROM_BULB_TAG_LABELS_START 40 // 32 bytes long
-// future data for EEPROM will start at 72...
-
-#define EEPROM_CONFIG "AL1"		// 3 byte identifier for this sketch's EEPROM settings
-#define EEPROM_CONFIG_START 253 // store EEPROM_CONFIG at the end of EEPROM
 
 // helpers
 #define SPACE " "
@@ -144,6 +134,63 @@ const byte SET_INFARED_STATE = 0x7A;
 class lifxUdp : public Component
 {
 public:
+	// no default MAC address, must be set externally (lifxUdp->mac)
+	byte mac[6] = {};
+
+	// Bulb name/locationgroup, lame defaults
+	char bulbLabel[32] = "B";
+
+	char bulbLocation[32] = "L";
+	char bulbLocationGUID[37] = "b49bed4d-77b0-05a3-9ec3-be93d9582f1f";
+	uint64_t bulbLocationTime = 1553350342028441856;
+									
+	char bulbGroup[32] = "G";
+	char bulbGroupGUID[37] = "bd93e53d-2014-496f-8cfd-b8886f766d7a";
+	uint64_t bulbGroupTime = 1600213602318000000;
+
+    void set_bulbLocation(const char *arg) {strcpy(bulbLocation,arg);}
+    void set_bulbLocationGUID(const char *arg) {strcpy(bulbLocationGUID,arg);}
+    void set_bulbLocationTime(uint64_t arg) {bulbLocationTime=arg;}
+
+    void set_bulbGroup(const char *arg) {strcpy(bulbGroup,arg);}
+    void set_bulbGroupGUID(const char *arg) {strcpy(bulbGroupGUID,arg);}
+    void set_bulbGroupTime(uint64_t arg) {bulbGroupTime=arg;}
+
+	/******************************************************************************************************************
+	 * beginUDP( char )
+	 * This function creates the UDP listener with inline function called for each packet
+	******************************************************************************************************************/
+	void beginUDP(char bulbLabelToSet[32] = (char *)"Test")
+	{
+		debug_print(F("Setting Light Name: "));
+		strcpy(bulbLabel, bulbLabelToSet);
+		debug_println(bulbLabel);
+
+		// start listening for packets
+		bool block = 0;
+		long pNo = 0;
+		if (Udp.listen(LifxPort))
+		{
+			ESP_LOGD("LIFXUDP", "Listerner Enabled");
+			Udp.onPacket(
+				[&](AsyncUDPPacket &packet) {
+					unsigned long packetTime = millis();
+					uint32_t packetSize = packet.length();
+					if (packetSize)
+					{ //ignore empty packets
+						incomingUDP(packet);
+					}
+					Serial.print(F("Total Packet handling time: "));
+					Serial.println(millis() - packetTime);
+				});
+		}
+		//TODO: TCP support necessary?
+		//TcpServer.begin();
+
+		setLight(); // will (not) turn light on at boot.... why?
+	}
+
+private:
 	float maxColor = 255;
 	// initial bulb values - warm white!
 	uint16_t power_status = 65535;
@@ -164,43 +211,19 @@ public:
 	uint32_t dur = 0;
 	uint8_t _sequence = 0;
 	double lastChange = millis();
-	uint16_t offdur = 1000;	   // trying to emulate real bulbs
-	uint16_t throttleAt = 100; // when to kill transition times
 
-	byte mac[6];
 	byte site_mac[6] = {0x4C, 0x49, 0x46, 0x58, 0x56, 0x32}; // spells out "LIFXV2" - version 2 of the app changes the site address to this...?
-
-	// label (name) for this bulb, default to Test if nothing is set
-	char bulbLabel[LifxBulbLabelLength] = "Test";
-	//memset( bulbLabel, 0, LifxBulbLabelLength);
 
 	// tags for this bulb, seemingly unused on current real bulbs
 	char bulbTags[LifxBulbTagsLength] = {
 		0, 0, 0, 0, 0, 0, 0, 0};
 	char bulbTagLabels[LifxBulbTagLabelsLength] = "";
 
-	//byte _locationUUID[] = { 0x4d, 0xed, 0x9b, 0xb4, 0xb0, 0x77, 0xa3, 0x05, 0x9e, 0xc3, 0xbe, 0x93, 0xd9, 0x58, 0x2f, 0x1f };
-
-	// Updated at timestamp
-	uint64_t _locationUpdated = 1553350342028441856;
-
-	// this is so fucktastically hacky
-	// Location UUID
-	//const _locationUUID = "b49bed4d-77b0-05a3-9ec3-be93d9582f1f";
-	// "My Home"
-	unsigned char locationLabel[32] = "My Home";
-	byte locationResponse[56] = {0x4d, 0xed, 0x9b, 0xb4, 0xb0, 0x77, 0xa3, 0x05, 0x9e, 0xc3, 0xbe, 0x93, 0xd9, 0x58, 0x2f, 0x1f, 
-								 0x4d, 0x79, 0x20, 0x48, 0x6f, 0x6d, 0x65, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-								 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-								 0x00, 0xe1, 0x96, 0xcb, 0x82, 0x02, 0x59, 0x15};
-	byte groupResponse[56]    = {0x29, 0xad, 0xfa, 0xd2, 0xfc, 0x9c, 0x1e, 0xbb, 0xb6, 0xd8, 0x03, 0x5a, 0xa8, 0xcb, 0xf7, 0xf2, 
-								 0x42, 0x61, 0x73, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-								 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-								 0x00, 0x76, 0xf6, 0x60, 0x22, 0x90, 0x32, 0x16};
-	byte authResponse[56]     = {0xd1, 0x74, 0xef, 0x20, 0x68, 0x02, 0x4c, 0x3b, 0x94, 0xf7, 0x24, 0x71, 0x33, 0xc2, 0x98, 0x9a,
-								 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-							 	 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-							 	 0x00, 0x39, 0x3b, 0x63, 0x31, 0x64, 0x5b, 0x15};
+	// This is an undocumented packet payload I suspect is a firmware checksum, only checked by official apps
+	byte authResponse[56] = {0xd1, 0x74, 0xef, 0x20, 0x68, 0x02, 0x4c, 0x3b, 0x94, 0xf7, 0x24, 0x71, 0x33, 0xc2, 0x98, 0x9a,
+							 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+							 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+							 0x00, 0x39, 0x3b, 0x63, 0x31, 0x64, 0x5b, 0x15};
 
 	// Should probably check if wifi is up first before doing this
 	AsyncUDP Udp;
@@ -210,60 +233,13 @@ public:
 		// moved to beginUDP()
 	}
 
-	void beginUDP(byte bulbMac[6], char lifxLightName[LifxBulbLabelLength] = (char *)"Test")
-	{
-		debug_print( "Setting MAC: ");
-		//debug_println( bulbMac, HEX);
-		//(byte *)WiFi.macAddress();
-		// real Lifx bulbs all have a mac starting with D0:73:D5, consider changing ESP mac to spoof?
-		for (int i = 0; i < 6; i++)
-		{
-			// why???
-			mac[i] = bulbMac[i];
-			debug_println( bulbMac[i], HEX);
-		}
- 
-		debug_print(F("Setting Light Name: "));
-		debug_println(lifxLightName);
-		for (int j = 0; j < strlen(lifxLightName); j++)
-		{
-			// again why??
-			bulbLabel[j] = lifxLightName[j];
-		}
-		debug_println(bulbLabel);
-
-		// start listening for packets
-		bool block = 0;
-		long pNo = 0;
-		if (Udp.listen(LifxPort))
-		{
-			ESP_LOGD("LIFXUDP", "Listerner Enabled");
-			Udp.onPacket(
-				[&](AsyncUDPPacket &packet) {
-					long packetTime = millis();
-					// int might not be adequate here
-					
-					uint32_t packetSize = packet.length();
-					if (packetSize)
-					{ //ignore empty packets?  Needed?
-						incomingUDP(packet);
-					}
-					Serial.print(F("Total Packet handling time: "));
-					Serial.println(millis() - packetTime);
-				});
-		}
-		//TODO: TCP support necessary?
-		//TcpServer.begin();
-		setLight(); // will turn light on at boot
-	}
-
 	void loop() override
 	{
-		//todo stuff, unneeded for async services
+		//TODO: Need to add bulb state watching here if things are changed outside this protocol
 	}
 
 	/******************************************************************************************************************
-	 * incomingUDP
+	 * incomingUDP( AsyncUDPPacket )
 	 * This function is called on all incoming UDP packets
 	******************************************************************************************************************/
 	void incomingUDP(AsyncUDPPacket &packet)
@@ -306,6 +282,10 @@ public:
 		handleRequest(request, packet);
 	}
 
+	/******************************************************************************************************************
+	 * processRequest( byte, float, LifxPacket )
+	 * This function is called on all incoming UDP packets to pack a struct
+	******************************************************************************************************************/
 	void processRequest(byte *packetBuffer, float packetSize, LifxPacket &request)
 	{
 
@@ -327,7 +307,7 @@ public:
 		memcpy(request.site, site, 6);
 
 		request.res_ack = packetBuffer[22];
-		request.sequence = packetBuffer[23]; //_sequence++;
+		request.sequence = packetBuffer[23];
 		request.timestamp = packetBuffer[24] + packetBuffer[25] + packetBuffer[26] + packetBuffer[27] +
 							packetBuffer[28] + packetBuffer[29] + packetBuffer[30] + packetBuffer[31];
 		request.packet_type = packetBuffer[32] + (packetBuffer[33] << 8); //little endian
@@ -356,6 +336,7 @@ public:
 		{
 			response.source[x] = request.source[x];
 		}
+		// Bulbs must respond with matching number from request
 		response.sequence = request.sequence;
 
 		switch (request.packet_type)
@@ -392,9 +373,6 @@ public:
 			memcpy(response.data, UDPdata5, sizeof(UDPdata));
 			response.data_size = sizeof(UDPdata);
 			sendPacket(response, packet);
-			// memcpy(response.data, UDPdata, sizeof(UDPdata));
-			// response.data_size = sizeof(UDPdata);
-			// sendPacket(response, packet);
 		}
 		break;
 
@@ -468,10 +446,10 @@ public:
 
 		case GET_LIGHT_STATE:
 		{
-			response.res_ack = 0x00; // no response/ack
+			response.res_ack = NO_RES_NO_ACK;
 			// send the light's state
 			response.packet_type = LIGHT_STATUS;
-			response.protocol = LifxProtocol_AllBulbsResponse;// LifxProtocol_BulbCommand; // home assisstant crashes if you use all bulb response here
+			response.protocol = LifxProtocol_AllBulbsResponse;
 			byte StateData[] = {
 				lowByte(hue),			//hue
 				highByte(hue),			//hue
@@ -526,8 +504,7 @@ public:
 				lowByte(bulbTags[4]),
 				lowByte(bulbTags[5]),
 				lowByte(bulbTags[6]),
-				lowByte(bulbTags[7])
-				};
+				lowByte(bulbTags[7])};
 
 			memcpy(response.data, StateData, sizeof(StateData));
 			response.data_size = sizeof(StateData);
@@ -537,25 +514,29 @@ public:
 
 		case SET_POWER_STATE:
 		case SET_POWER_STATE2:
+		{
+			power_status = word(request.data[1], request.data[0]);
+			setLight();
+
+			// real bulbs send an ACK packet on a set power
+			// TODO: Refactor to ack properly regardless of incoming packet
+			response.packet_type = ACKNOWLEDGEMENT;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			byte ack[] = {};
+			response.data_size = sizeof(ack);
+			memcpy(response.data, ack, response.data_size);
+			sendPacket(response, packet);
+		}
+		break;
+
 		case GET_POWER_STATE:
 		case GET_POWER_STATE2:
 		{
-			// set if we are setting
-			if ((request.packet_type == SET_POWER_STATE) | (request.packet_type == SET_POWER_STATE2))
-			{
-				power_status = word(request.data[1], request.data[0]);
-				setLight();
-			}
-
-			// respond to both get and set commands
-			// real bulbs send an ACK now instead of this packet?
-			//response.packet_type = POWER_STATE;
-			response.packet_type = ACKNOWLEDGEMENT;
+			response.packet_type = POWER_STATE;
 			response.protocol = LifxProtocol_AllBulbsResponse;
 			byte PowerData[] = {
-				//lowByte(power_status),
-				//highByte(power_status)
-				};
+				lowByte(power_status),
+				highByte(power_status)};
 
 			memcpy(response.data, PowerData, sizeof(PowerData));
 			response.data_size = sizeof(PowerData);
@@ -640,64 +621,39 @@ public:
 
 		case GET_LOCATION_STATE:
 		{
-			/* this section can get fucked */
 			response.packet_type = LOCATION_STATE;
 			response.res_ack = RES_NO_ACK;
 			response.protocol = LifxProtocol_AllBulbsResponse;
+			byte bulbLocationGUIDb[16] = {0};
+			hexCharacterStringToBytes( bulbLocationGUIDb, (const char *) bulbLocationGUID );  // strips dashes too
+			uint8_t *p = (uint8_t *)&bulbLocationTime; 
+			byte LocationStateResponse[56] = {
+				bulbLocationGUIDb[3], //Group one big endian (host order LE)
+				bulbLocationGUIDb[2],
+				bulbLocationGUIDb[1],
+				bulbLocationGUIDb[0],
+				bulbLocationGUIDb[5], //Group two big endian
+				bulbLocationGUIDb[4],
+				bulbLocationGUIDb[7], //Group three big endian
+				bulbLocationGUIDb[6],
+				bulbLocationGUIDb[8], // Group four/five little endian
+				bulbLocationGUIDb[9],
+				bulbLocationGUIDb[10],
+				bulbLocationGUIDb[11],
+				bulbLocationGUIDb[12],
+				bulbLocationGUIDb[13],
+				bulbLocationGUIDb[14],
+				bulbLocationGUIDb[15] 
+			};
+			for( int j = 0; j < sizeof( bulbLocation ); j++ ) {
+				LocationStateResponse[j+16] = bulbLocation[j];
+			}
+			for( int k = 0; k < sizeof(bulbLocationTime); k++ ) {
+				LocationStateResponse[k+32+16] = p[k];
+			}
 
-			// byte locationUUID[16];
-			// memcpy(locationUUID, _locationUUID, 16);
-			// uint8_t *locationUpdated = (uint8_t *)&_locationUpdated;
-
-			// byte locationData[sizeof(locationUUID) + sizeof(locationUpdated) + 32];
-
-			// static uint8_t locationByteArray[32];
-			// uint8_t strCounter = 0; // need two counters: one for _locationUUID string (size=38) and
-			// uint8_t hexCounter = 0; // another one for destination locationByteArray (size=32)
-			// while (strCounter < strlen(_locationUUID))
-			// {
-			// 	if (_locationUUID[strCounter] == '-')
-			// 	{
-			// 		strCounter++; //go to the next element
-			// 		continue;
-			// 	}
-
-			// 	// convert the character to string
-			// 	char str[2] = "\0";
-			// 	str[0] = _locationUUID[strCounter];
-
-			// 	// convert string to int base 16
-			// 	locationByteArray[hexCounter] = (uint8_t)atoi(str);
-			// 	debug_print(locationByteArray[hexCounter], HEX);
-
-			// 	strCounter++;
-			// 	hexCounter++;
-			// }
-
-			// int _loc = 0;
-			// for (int i = sizeof(_locationUUID) - 1; i >= 0; i -= 2)
-			// {
-			// 	//locationData += (char *)bytePrepend((_locationUUID[i]) + (_locationUUID[i+1]) );
-			// 	debug_print(_locationUUID[i], HEX);
-			// 	debug_print(" ");
-			// }
-			// debug_println("Done with UUID");
-			// for (int i = 0; i < 32; i++)
-			// {
-			// 	if (i > sizeof(locationLabel))
-			// 		locationData[_loc++] = 0;
-			// 	else
-			// 		locationData[_loc++] = htonl(locationLabel[i]);
-			// 	debug_println("LOC");
-			// }
-			// for (int i = 0; i < sizeof(locationUpdated); i++)
-			// {
-			// 	locationData[_loc++] = htonl(locationUpdated[i]);
-			// 	debug_println("TIME");
-			// }
-			// debug_println("Whatthe");
-			memcpy(response.data, locationResponse, sizeof(locationResponse));
-			response.data_size = sizeof(locationResponse);
+			memcpy(response.data, LocationStateResponse, sizeof(LocationStateResponse));
+			response.data_size = sizeof(LocationStateResponse);
 			sendPacket(response, packet);
 		}
 		break;
@@ -718,8 +674,36 @@ public:
 			response.packet_type = GROUP_STATE;
 			response.res_ack = RES_NO_ACK;
 			response.protocol = LifxProtocol_AllBulbsResponse;
-			memcpy(response.data, groupResponse, sizeof(groupResponse));
-			response.data_size = sizeof(groupResponse);
+			byte bulbGroupGUIDb[16] = {0};
+			hexCharacterStringToBytes( bulbGroupGUIDb, (const char *) bulbGroupGUID );  // strips dashes too
+			uint8_t *p = (uint8_t *)&bulbGroupTime; 
+			byte groupStateResponse[56] = {
+				bulbGroupGUIDb[3],
+				bulbGroupGUIDb[2],
+				bulbGroupGUIDb[1],
+				bulbGroupGUIDb[0],
+				bulbGroupGUIDb[5],
+				bulbGroupGUIDb[4],
+				bulbGroupGUIDb[7],
+				bulbGroupGUIDb[6],
+				bulbGroupGUIDb[8],
+				bulbGroupGUIDb[9],
+				bulbGroupGUIDb[10],
+				bulbGroupGUIDb[11],
+				bulbGroupGUIDb[12],
+				bulbGroupGUIDb[13],
+				bulbGroupGUIDb[14],
+				bulbGroupGUIDb[15] 
+			};
+			for( int j = 0; j < sizeof( bulbGroup ); j++ ) {
+				groupStateResponse[j+16] = bulbGroup[j];
+			}
+			for( int k = 0; k < sizeof(bulbGroupTime); k++ ) {
+				groupStateResponse[k+32+16] = p[k];
+			}
+
+			memcpy(response.data, groupStateResponse, sizeof(groupStateResponse));
+			response.data_size = sizeof(groupStateResponse);
 			sendPacket(response, packet);
 		}
 		break;
@@ -729,7 +713,7 @@ public:
 			// respond to get command
 			response.packet_type = VERSION_STATE;
 			response.protocol = LifxProtocol_AllBulbsResponse;
-			response.res_ack = 0x01; // matching real bulb response
+			response.res_ack = RES_NO_ACK; // matching real bulb response
 			byte VersionData[] = {
 				lowByte(LifxBulbVendor),
 				highByte(LifxBulbVendor),
@@ -760,7 +744,7 @@ public:
 			byte MeshVersionData[] = {
 				0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 build 1502237570000000000
 				0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 reserved 0x14d9051c58189400
-				0x16, 0x00, 0x01, 0x00 // color 1000 Version 65558
+				0x16, 0x00, 0x01, 0x00							// color 1000 Version 65558
 				// 0x00, 0x2e, 0xc3, 0x8b, 0xef, 0x30, 0x86, 0x13, //build timestamp
 				// 0xe0, 0x25, 0x76, 0x45, 0x69, 0x81, 0x8b, 0x13, //install timestamp
 				// lowByte(LifxFirmwareVersionMinor),
@@ -858,7 +842,6 @@ public:
 
 		}
 		*/
-
 	}
 
 	unsigned int sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi)
@@ -913,7 +896,7 @@ public:
 		_message[_packetLength++] = (lowByte(pkt.res_ack));
 
 		// Sequence.  Real bulbs seem to match the incoming value
-		_message[_packetLength++] = (lowByte(pkt.sequence)); 
+		_message[_packetLength++] = (lowByte(pkt.sequence));
 
 		//// PROTOCOL HEADER
 		// real bulbs send epoch time in msec plus some strange fixed value (lifxMagicNum?) ...  docs say "reserved"
@@ -975,7 +958,7 @@ public:
 	{
 		int maxColor = 255;
 		int loopDuration = 0;
-		double loopRate = millis() - lastChange;
+		double loopRate = millis() - lastChange; // This value will cycle in 49 days from boot up, do we care?
 		debug_print(F("Packet rate:"));
 		debug_print(loopRate);
 		debug_println(F("msec"));
@@ -996,7 +979,7 @@ public:
 
 		if (power_status && bri)
 		{
-			float bright = (float)bri / 65535;
+			float bright = (float)bri / 65535; // Esphome uses 0-1 float for brighness, protocol is 0-65535
 
 			// if we are setting a "white" colour (no saturation)
 			if (sat < 1)
@@ -1004,20 +987,7 @@ public:
 				debug_println(F("White light enabled"));
 				auto callW = white_led->turn_on();
 				auto callC = color_led->turn_off();
-				uint16_t mireds = 1000000 / kel;
-
-				// convert kelvin to RGB
-				//rgbb kelvin_rgb;
-				//kelvin_rgb = kelvinToRGB(kel);
-
-				// convert the RGB into HSV
-				//hsv kelvin_hsv;
-				//kelvin_hsv = rgb2hsv(kelvin_rgb);
-
-				// set the new values ready to go to the bulb (brightness does not change, just hue and saturation)
-				//this_hue = map(kelvin_hsv.h, 0, 359, 0, 767);
-				//this_sat = map(kelvin_hsv.s * 1000, 0, 1000, 0, 255); //multiply the sat by 1000 so we can map the percentage value returned by rgb2hsv
-
+				uint16_t mireds = 1000000 / kel; // Esphome requires mireds, protocol is kelvin
 				callW.set_color_temperature(mireds);
 				callW.set_brightness(bright);
 				callW.set_transition_length(dur);
@@ -1026,18 +996,23 @@ public:
 			}
 			else
 			{
+				uint8_t rgbColor[3];
+				auto callW = white_led->turn_off();
+				auto callC = color_led->turn_on();
+
+				// Remap to smaller range.... should consider a better hsb2rgb that supports higher precision
 				int this_hue = map(hue, 0, 65535, 0, 767);
 				int this_sat = map(sat, 0, 65535, 0, 255);
 				int this_bri = map(bri, 0, 65535, 0, 255);
-				auto callW = white_led->turn_off();
-				auto callC = color_led->turn_on();
-				uint8_t rgbColor[3];
-				hsb2rgb(this_hue, this_sat, this_bri, rgbColor);
+
+				// todo: RGBW(W) math to decide mixing in white light approprately when lowering saturation
+				hsb2rgb(this_hue, this_sat, this_bri, rgbColor); // Remap color to RGB from protocol's HSB
 				float r = (float)rgbColor[0] / maxColor;
 				float g = (float)rgbColor[1] / maxColor;
 				float b = (float)rgbColor[2] / maxColor;
+
 				callC.set_rgb(r, g, b);
-				callC.set_brightness(bright); //(bri/65535);
+				callC.set_brightness(bright);
 				callC.set_transition_length(dur);
 				callW.perform();
 				callC.perform();
@@ -1049,16 +1024,121 @@ public:
 			call.set_brightness(0);
 			call.set_transition_length(dur);
 			call.perform();
+
 			auto call2 = white_led->turn_off();
 			call2.set_brightness(0);
 			// fade to black
-			call.set_transition_length(dur);
+			call2.set_transition_length(dur);
 			call2.perform();
 		}
 		lastChange = millis(); // throttle transitions based on last change
 	}
 
-	//#define DEG_TO_RAD(X) (M_PI*(X)/180)
+	void hexCharacterStringToBytes(byte *byteArray, const char *hexString)
+	{
+		bool oddLength = strlen(hexString) & 1;
+
+		byte currentByte = 0;
+		byte byteIndex = 0;
+		byte removed = 0;
+
+		for (byte charIndex = 0; charIndex < strlen(hexString); charIndex++)
+		{
+			bool oddCharIndex = (charIndex - removed) & 1;
+			if( hexString[charIndex] == '-' ) { 
+				//oddLength = !oddLength; // This didn't work.... not sure what happened if we deduct odd number of dashes however
+				removed++;
+				continue; 
+			}
+
+			if (oddLength)
+			{
+				// If the length is odd
+				if (oddCharIndex)
+				{
+					// odd characters go in high nibble
+					currentByte = nibble(hexString[charIndex]) << 4;
+				}
+				else
+				{
+					// Even characters go into low nibble
+					currentByte |= nibble(hexString[charIndex]);
+					byteArray[byteIndex++] = currentByte;
+					currentByte = 0;
+				}
+			}
+			else
+			{
+				// If the length is even
+				if (!oddCharIndex)
+				{
+					// Odd characters go into the high nibble
+					currentByte = nibble(hexString[charIndex]) << 4;
+				}
+				else
+				{
+					// Odd characters go into low nibble
+					currentByte |= nibble(hexString[charIndex]);
+					byteArray[byteIndex++] = currentByte;
+					currentByte = 0;
+				}
+			}
+		}
+	}
+
+	void dumpByteArray(const byte *byteArray, const byte arraySize)
+	{
+
+		for (int i = 0; i < arraySize; i++)
+		{
+			Serial.print("0x");
+			if (byteArray[i] < 0x10)
+				Serial.print("0");
+			Serial.print(byteArray[i], HEX);
+			Serial.print(", ");
+		}
+		Serial.println();
+	}
+
+	byte nibble(char c)
+	{
+		if (c >= '0' && c <= '9')
+			return c - '0';
+
+		if (c >= 'a' && c <= 'f')
+			return c - 'a' + 10;
+
+		if (c >= 'A' && c <= 'F')
+			return c - 'A' + 10;
+
+		return 0; // Not a valid hexadecimal character
+	}
+
+	void str_replace(char *src, char *oldchars, char *newchars)
+	{ // utility string function
+		char *p = strstr(src, oldchars);
+		char buf[37];
+		do
+		{
+			if (p)
+			{
+				memset(buf, '\0', strlen(buf));
+				if (src == p)
+				{
+					strcpy(buf, newchars);
+					strcat(buf, p + strlen(oldchars));
+				}
+				else
+				{
+					strncpy(buf, src, strlen(src) - strlen(p));
+					strcat(buf, newchars);
+					strcat(buf, p + strlen(oldchars));
+				}
+				memset(src, '\0', strlen(src));
+				strcpy(src, buf);
+			}
+		} while (p && (p = strstr(src, oldchars)));
+	}
 
 	void hsi2rgbw(float H, float S, float I, int *rgbw)
 	{
@@ -1105,15 +1185,15 @@ public:
 		rgbw[3] = w;
 	}
 	/******************************************************************************
- * accepts hue, saturation and brightness values and outputs three 8-bit color
- * values in an array (color[])
- *
- * saturation (sat) and brightness (bright) are 8-bit values.
- *
- * hue (index) is a value between 0 and 767. hue values out of range are
- * rendered as 0.
- *
- *****************************************************************************/
+	 * accepts hue, saturation and brightness values and outputs three 8-bit color
+	 * values in an array (color[])
+	 *
+	 * saturation (sat) and brightness (bright) are 8-bit values.
+	 *
+	 * hue (index) is a value between 0 and 767. hue values out of range are
+	 * rendered as 0.
+	 *
+	 *****************************************************************************/
 	void hsb2rgb(uint16_t index, uint8_t sat, uint8_t bright, uint8_t color[3])
 	{
 		uint16_t r_temp, g_temp, b_temp;
@@ -1163,52 +1243,6 @@ public:
 		color[1] = (uint8_t)g_temp;
 		color[2] = (uint8_t)b_temp;
 	}
-
-	// // Number to hex string
-	// template <typename I>
-	// char n2hexstr(I w, size_t hex_len = sizeof(I) << 1)
-	// {
-	// 	static const char *digits = "0123456789ABCDEF";
-	// 	char rc[hex_len] = '0';
-	// 	for (size_t i = 0, j = (hex_len - 1) * 4; i < hex_len; ++i, j -= 4)
-	// 		rc[i] = digits[(w >> j) & 0x0f];
-	// 	return rc;
-	// }
-
-	// // Prepends for each byte
-	// char bytePrepend(char* inputString)
-	// {
-	// 	char* s[sizeof("\\x")+sizeof(inputString)];
-	// 	s[0] = (char*)"\\x";
-	// 	for( int i=1; i<sizeof(inputString); i++) {
-	// 		s[i] = inputString[i];
-	// 	}
-	// 	return s;
-	// }
-
-	// // Flips hex string
-	// char flipHex(char s)
-	// {
-
-	// 	char out;
-	// 	for (int i = sizeof(s) - 1; i >= 0; i -= 2)
-	// 		out += char(1, s[i - 1]) + char(1, s[i]);
-	// 	return out;
-	// }
-
-	// // Converts hex string into byte sequence
-	// char hexstr2byte(char hex)
-	// {
-	// 	char byteStr;
-
-	// 	if (hex.length() % 2 == 1)
-	// 		hex.insert(0, "0");
-
-	// 	for (int i = sizeof(hex) - 1; i >= 0; i -= 2)
-	// 		byteStr += bytePrepend((hex[i - 1]) + hex[i]));
-
-	// 	return byteStr;
-	// }
 
 	uint64_t swap_uint64(uint64_t val)
 	{
