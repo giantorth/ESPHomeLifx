@@ -16,6 +16,8 @@ If you add this component it should be the last item in the YAML or it might cau
 
 - Custom component has changed and now supports setting Location/Group values
   - Use wireshark to sniff real values from other bulbs if you want to match their values
+- Supports (runtime only) updates to Location/Group/Name
+  - Resets to compile time config on reboot, MQTT is next
 
 ## Instructions
 

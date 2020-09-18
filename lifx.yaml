@@ -95,18 +95,19 @@ time:
 custom_component:
 - lambda: |-
   auto LifxLAN = new lifxUdp();
-    
+
+  LifxLAN->set_bulbLabel( App.get_name().c_str() );  
   WiFi.macAddress(LifxLAN->mac);
 
-  uint64_t locT = 1538263508508401920;
   LifxLAN->set_bulbLocation( "Test Location" );
   LifxLAN->set_bulbLocationGUID( "4b833820-49b1-4f97-b324-316098f259d3" );
+  uint64_t locT = 1600358586632000000;  // epoch in msec * 1,000,000
   LifxLAN->set_bulbLocationTime( locT );
 
-  uint64_t grpT = 1600358586632000000;
   LifxLAN->set_bulbGroup( "Test Group" );
   LifxLAN->set_bulbGroupGUID( "455820e8-3323-49f3-a7d0-598ba8092563" );
+  uint64_t grpT = 1600358586632000000; // epoch in msec * 1,000,000
   LifxLAN->set_bulbGroupTime( grpT );
 
-  LifxLAN->beginUDP((char*)App.get_name().c_str());
+  LifxLAN->beginUDP();
   return {LifxLAN};
