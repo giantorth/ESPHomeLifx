@@ -94,8 +94,20 @@ time:
 # Required component for Lifx support
 custom_component:
 - lambda: |-
-    byte mac[6];
-    WiFi.macAddress(mac);
-    auto lifxUdpSupport = new lifxUdp();
-    lifxUdpSupport->beginUDP(mac, (char *)App.get_name().c_str());
-    return {lifxUdpSupport};
+  auto LifxLAN = new lifxUdp();
+
+  LifxLAN->set_bulbLabel( App.get_name().c_str() );  
+  WiFi.macAddress(LifxLAN->mac);
+
+  LifxLAN->set_bulbLocation( "Test Location" );
+  LifxLAN->set_bulbLocationGUID( "4b833820-49b1-4f97-b324-316098f259d3" );
+  uint64_t locT = 1600358586632000000;  // epoch in msec * 1,000,000
+  LifxLAN->set_bulbLocationTime( locT );
+
+  LifxLAN->set_bulbGroup( "Test Group" );
+  LifxLAN->set_bulbGroupGUID( "455820e8-3323-49f3-a7d0-598ba8092563" );
+  uint64_t grpT = 1600358586632000000; // epoch in msec * 1,000,000
+  LifxLAN->set_bulbGroupTime( grpT );
+
+  LifxLAN->beginUDP();
+  return {LifxLAN};
