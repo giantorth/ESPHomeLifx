@@ -1,7 +1,7 @@
 #include "esphome.h"
 #include <ESPAsyncUDP.h>
 
-#define DEBUG
+#define DEBUGOFF
 
 #ifdef DEBUG
 #define debug_print(x, ...) Serial.print(x, ##__VA_ARGS__)
@@ -72,31 +72,50 @@ const byte RES_NO_ACK = 0x01; // Real bulb repsonse for STATE_
 const byte NO_RES_ACK = 0x02;
 const byte RES_ACK = 0x03;
 
-// packet types
+// Device Messages
 const byte GET_PAN_GATEWAY = 0x02;
 const byte PAN_GATEWAY = 0x03; // stateService(3)
+
+const byte GET_HOST_INFO = 0x0c; // getHostInfo(12)
+const byte HOST_INFO = 0x0d; // stateHostInfo(13)
+
+const byte GET_MESH_FIRMWARE_STATE = 0x0e;  //getHostFirmware(14)
+const byte MESH_FIRMWARE_STATE = 0x0f; // stateHostFirmware(15)
+
+const byte GET_WIFI_INFO = 0x10; // getWifiInfo (16)
+const byte WIFI_INFO = 0x11; // stateWifiInfo (17)
 
 const byte GET_WIFI_FIRMWARE_STATE = 0x12; // getWifiFirmware(18)
 const byte WIFI_FIRMWARE_STATE = 0x13;  // stateWifiFirmware(19)
 
-const byte GET_POWER_STATE = 0x14;
-const byte GET_POWER_STATE2 = 0x74;
-const byte SET_POWER_STATE = 0x75;
-const byte SET_POWER_STATE2 = 0x15;
-const byte POWER_STATE = 0x16;
-const byte POWER_STATE2 = 0x76;
+const byte GET_POWER_STATE = 0x14; // getPower(20)
+const byte SET_POWER_STATE = 0x15; // setPower(21)
+const byte POWER_STATE = 0x16;  // statePower(22)
 
-const byte GET_BULB_LABEL = 0x17;
-const byte SET_BULB_LABEL = 0x18;
-const byte BULB_LABEL = 0x19;
+const byte GET_BULB_LABEL = 0x17; // getLabel(23)
+const byte SET_BULB_LABEL = 0x18; // setLabel(24)
+const byte BULB_LABEL = 0x19; // stateLabel(25)
+
+const byte GET_BULB_TAGS = 0x1a;  // unlisted packets
+const byte SET_BULB_TAGS = 0x1b;  // 
+const byte BULB_TAGS = 0x1c; // 
+
+const byte GET_BULB_TAG_LABELS = 0x1d;  // unlisted packets
+const byte SET_BULB_TAG_LABELS = 0x1e;
+const byte BULB_TAG_LABELS = 0x1f;
 
 const byte GET_VERSION_STATE = 0x20; // getVersion(32)
 const byte VERSION_STATE = 0x21; // stateVersion(33)
 
-const byte ACKNOWLEDGEMENT = 0x2d;
+const byte GET_INFO = 0x22; // getInfo(34)
+const byte STATE_INFO = 0x23; // stateInfo(35)
+
+// no documented packets 0x24 thru 0x2c
+
+const byte ACKNOWLEDGEMENT = 0x2d; // acknowledgement(45)
 
 const byte GET_LOCATION_STATE = 0x30;  // getLocation(48)
-const byte SET_LOCATION_STATE = 0x31;
+const byte SET_LOCATION_STATE = 0x31; // setLocation(49)
 const byte LOCATION_STATE = 0x32; // stateLocation(50)
 
 const byte GET_GROUP_STATE = 0x33;  // getGroup(51)
@@ -106,27 +125,24 @@ const byte GROUP_STATE = 0x35; // stateGroup(53) - res_required
 const byte GET_AUTH_STATE = 0x36; // Mystery packets queried first by apps, need to add to wireshark plugin
 const byte AUTH_STATE = 0x38;
 
-const byte GET_BULB_TAGS = 0x1a;
-const byte SET_BULB_TAGS = 0x1b;
-const byte BULB_TAGS = 0x1c;
+const byte ECHO_REQUEST = 0x3a; // echoRequest(58)
+const byte ECHO_RESPONSE = 0x3b;  // echoResponse(59)
 
-const byte GET_BULB_TAG_LABELS = 0x1d;
-const byte SET_BULB_TAG_LABELS = 0x1e;
-const byte BULB_TAG_LABELS = 0x1f;
-
+// Light Messages
 const byte GET_LIGHT_STATE = 0x65; // get(101)
-const byte SET_LIGHT_STATE = 0x66; 
+const byte SET_LIGHT_STATE = 0x66; // setColor(102)
+const byte SET_WAVEFORM = 0x67; // setWaveform(103)
+
 const byte LIGHT_STATUS = 0x6b; // state(107) - res_required
 
-const byte SET_WAVEFORM = 0x67;
-const byte SET_WAVEFORM_OPTIONAL = 0x77;
+const byte GET_POWER_STATE2 = 0x74; // getPower(116)
+const byte SET_POWER_STATE2 = 0x75; // setPower(117)
+const byte POWER_STATE2 = 0x76; // statePower(118)
 
-const byte GET_MESH_FIRMWARE_STATE = 0x0e;  //getHostFirmware(14)
-const byte MESH_FIRMWARE_STATE = 0x0f;
-
-const byte GET_INFARED_STATE = 0x78;
-const byte STATE_INFARED_STATE = 0x79;
-const byte SET_INFARED_STATE = 0x7A;
+const byte SET_WAVEFORM_OPTIONAL = 0x77;  // setWaveformOptional(119)
+const byte GET_INFARED_STATE = 0x78; // getInfared(120)
+const byte STATE_INFARED_STATE = 0x79; // stateInfared(121)
+const byte SET_INFARED_STATE = 0x7A; // setInfrared(122)
 
 // helpers
 #define SPACE " "
@@ -148,6 +164,8 @@ public:
 	char bulbGroupGUID[37] = "bd93e53d-2014-496f-8cfd-b8886f766d7a";
 	uint64_t bulbGroupTime = 1600213602318000000;
 
+	void set_bulbLabel(const char *arg) {strcpy(bulbLabel,arg);}
+
     void set_bulbLocation(const char *arg) {strcpy(bulbLocation,arg);}
     void set_bulbLocationGUID(const char *arg) {strcpy(bulbLocationGUID,arg);}
     void set_bulbLocationTime(uint64_t arg) {bulbLocationTime=arg;}
@@ -156,15 +174,22 @@ public:
     void set_bulbGroupGUID(const char *arg) {strcpy(bulbGroupGUID,arg);}
     void set_bulbGroupTime(uint64_t arg) {bulbGroupTime=arg;}
 
+	byte bulbGroupGUIDb[16] = {};
+	byte bulbLocationGUIDb[16] = {};
+
 	/******************************************************************************************************************
 	 * beginUDP( char )
 	 * This function creates the UDP listener with inline function called for each packet
 	******************************************************************************************************************/
-	void beginUDP(char bulbLabelToSet[32] = (char *)"Test")
+	void beginUDP()
 	{
 		debug_print(F("Setting Light Name: "));
-		strcpy(bulbLabel, bulbLabelToSet);
+		//strcpy(bulbLabel, bulbLabelToSet);
 		debug_println(bulbLabel);
+
+		// Only want to do on boot
+		hexCharacterStringToBytes( bulbGroupGUIDb, (const char *) bulbGroupGUID );  // strips dashes too
+		hexCharacterStringToBytes( bulbLocationGUIDb, (const char *) bulbLocationGUID );  // strips dashes too
 
 		// start listening for packets
 		bool block = 0;
@@ -218,6 +243,8 @@ private:
 	char bulbTags[LifxBulbTagsLength] = {
 		0, 0, 0, 0, 0, 0, 0, 0};
 	char bulbTagLabels[LifxBulbTagLabelsLength] = "";
+
+	uint8_t guidSeq[16] = { 3,2,1,0,5,4,7,6,8,9,10,11,12,13,14,15 };  // Guids in packets come in a bizzare ordering
 
 	// This is an undocumented packet payload I suspect is a firmware checksum, only checked by official apps
 	byte authResponse[56] = {0xd1, 0x74, 0xef, 0x20, 0x68, 0x02, 0x4c, 0x3b, 0x94, 0xf7, 0x24, 0x71, 0x33, 0xc2, 0x98, 0x9a,
@@ -545,22 +572,29 @@ private:
 		break;
 
 		case SET_BULB_LABEL:
-		case GET_BULB_LABEL:
-		{
-			// set if we are setting
-			if (request.packet_type == SET_BULB_LABEL)
+		{			
+			
+			for (int i = 0; i < LifxBulbLabelLength; i++)
 			{
-				for (int i = 0; i < LifxBulbLabelLength; i++)
+				if (bulbLabel[i] != request.data[i])
 				{
-					if (bulbLabel[i] != request.data[i])
-					{
-						bulbLabel[i] = request.data[i];
-						//EEPROM.write(EEPROM_BULB_LABEL_START + i, request.data[i]);
-					}
+					bulbLabel[i] = request.data[i];
+					//EEPROM.write(EEPROM_BULB_LABEL_START + i, request.data[i]);
 				}
 			}
+			// real bulbs send an ACK packet on a set power
+			// TODO: Refactor to ack properly regardless of incoming packet
+			response.packet_type = ACKNOWLEDGEMENT;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			byte ack[] = {};
+			response.data_size = sizeof(ack);
+			memcpy(response.data, ack, response.data_size);
+			sendPacket(response, packet);
+		}
+		break;
 
-			// respond to both get and set commands
+		case GET_BULB_LABEL:
+		{
 			response.packet_type = BULB_LABEL;
 			response.protocol = LifxProtocol_AllBulbsResponse;
 			memcpy(response.data, bulbLabel, sizeof(bulbLabel));
@@ -619,32 +653,48 @@ private:
 		}
 		break;
 
+		case SET_LOCATION_STATE:
+		{
+			// TODO: Actually write out values to somewhere besides memory
+			// this needs constants
+			for( int i = 0; i < 16; i++ ) {
+				bulbLocationGUIDb[i] = request.data[i];
+			}
+			for( int j = 0; j < 32; j++ ) {
+				bulbLocation[j] = request.data[j+16];
+			}
+			if( request.data[16+32] == 0 ) {  // Did they send us no value? use now
+				auto time = ha_time->utcnow();
+				// generate a msec value from epoch and then stuff 6 more zeros on the end for a magic number
+				bulbLocationTime = (uint64_t)(((uint64_t)time.timestamp * 1000) * 1000000 + LifxMagicNum);
+			} else {
+				uint8_t *p = (uint8_t *)&bulbLocationTime;
+				for( int k = 0; k < 8; k++ ) {
+					p[k] = request.data[k+32+16];  
+				}
+			}
+
+			// real bulbs send an ACK packet on a set 
+			// TODO: Refactor to ack properly regardless of incoming packet
+			response.packet_type = ACKNOWLEDGEMENT;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			byte ack[] = {};
+			response.data_size = sizeof(ack);
+			memcpy(response.data, ack, response.data_size);
+			sendPacket(response, packet);
+		}
+		break;
+		
 		case GET_LOCATION_STATE:
 		{
 			response.packet_type = LOCATION_STATE;
 			response.res_ack = RES_NO_ACK;
 			response.protocol = LifxProtocol_AllBulbsResponse;
-			byte bulbLocationGUIDb[16] = {0};
-			hexCharacterStringToBytes( bulbLocationGUIDb, (const char *) bulbLocationGUID );  // strips dashes too
 			uint8_t *p = (uint8_t *)&bulbLocationTime; 
-			byte LocationStateResponse[56] = {
-				bulbLocationGUIDb[3], //Group one big endian (host order LE)
-				bulbLocationGUIDb[2],
-				bulbLocationGUIDb[1],
-				bulbLocationGUIDb[0],
-				bulbLocationGUIDb[5], //Group two big endian
-				bulbLocationGUIDb[4],
-				bulbLocationGUIDb[7], //Group three big endian
-				bulbLocationGUIDb[6],
-				bulbLocationGUIDb[8], // Group four/five little endian
-				bulbLocationGUIDb[9],
-				bulbLocationGUIDb[10],
-				bulbLocationGUIDb[11],
-				bulbLocationGUIDb[12],
-				bulbLocationGUIDb[13],
-				bulbLocationGUIDb[14],
-				bulbLocationGUIDb[15] 
-			};
+			byte LocationStateResponse[56] = {};
+			for( int i = 0; i < sizeof(bulbLocationGUIDb); i++ ) {
+				LocationStateResponse[i] = bulbLocationGUIDb[guidSeq[i]];  // special sequence
+			}
 			for( int j = 0; j < sizeof( bulbLocation ); j++ ) {
 				LocationStateResponse[j+16] = bulbLocation[j];
 			}
@@ -669,32 +719,48 @@ private:
 		}
 		break;
 
+		case SET_GROUP_STATE:
+		{
+			// TODO: Actually write out values to somewhere besides memory
+			// this needs constants
+			for( int i = 0; i < 16; i++ ) {
+				bulbGroupGUIDb[i] = request.data[i];
+			}
+			for( int j = 0; j < 32; j++ ) {
+				bulbGroup[j] = request.data[j+16];
+			}
+			if( request.data[16+32] == 0 ) {  // Did they send us no value? use now
+				auto time = ha_time->utcnow();
+				// generate a msec value from epoch and then stuff 6 more zeros on the end for a magic number
+				bulbGroupTime = (uint64_t)(((uint64_t)time.timestamp * 1000) * 1000000 + LifxMagicNum);
+			} else {
+				uint8_t *p = (uint8_t *)&bulbGroupTime;
+				for( int k = 0; k < 8; k++ ) {
+					p[k] = request.data[k+32+16];  
+				}
+			}
+
+			// real bulbs send an ACK packet on a set 
+			// TODO: Refactor to ack properly regardless of incoming packet
+			response.packet_type = ACKNOWLEDGEMENT;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			byte ack[] = {};
+			response.data_size = sizeof(ack);
+			memcpy(response.data, ack, response.data_size);
+			sendPacket(response, packet);
+		}
+		break;
+
 		case GET_GROUP_STATE:
 		{
 			response.packet_type = GROUP_STATE;
 			response.res_ack = RES_NO_ACK;
 			response.protocol = LifxProtocol_AllBulbsResponse;
-			byte bulbGroupGUIDb[16] = {0};
-			hexCharacterStringToBytes( bulbGroupGUIDb, (const char *) bulbGroupGUID );  // strips dashes too
 			uint8_t *p = (uint8_t *)&bulbGroupTime; 
-			byte groupStateResponse[56] = {
-				bulbGroupGUIDb[3],
-				bulbGroupGUIDb[2],
-				bulbGroupGUIDb[1],
-				bulbGroupGUIDb[0],
-				bulbGroupGUIDb[5],
-				bulbGroupGUIDb[4],
-				bulbGroupGUIDb[7],
-				bulbGroupGUIDb[6],
-				bulbGroupGUIDb[8],
-				bulbGroupGUIDb[9],
-				bulbGroupGUIDb[10],
-				bulbGroupGUIDb[11],
-				bulbGroupGUIDb[12],
-				bulbGroupGUIDb[13],
-				bulbGroupGUIDb[14],
-				bulbGroupGUIDb[15] 
-			};
+			byte groupStateResponse[56] = {};
+			for( int i = 0; i < sizeof(bulbGroupGUIDb); i++ ) {
+				groupStateResponse[i] = bulbGroupGUIDb[guidSeq[i]];  // special sequence
+			}
 			for( int j = 0; j < sizeof( bulbGroup ); j++ ) {
 				groupStateResponse[j+16] = bulbGroup[j];
 			}
@@ -849,9 +915,10 @@ private:
 		int totalSize = LifxPacketSize + pkt.data_size;
 
 		auto time = ha_time->utcnow();
+
 		// generate a msec value from epoch
 		uint64_t packetT = (uint64_t)(((uint64_t)time.timestamp * 1000) * 1000000 + LifxMagicNum);
-		// break up large value for packet handling
+		// recast large value for packet handling
 		uint8_t *packetTime = (uint8_t *)&packetT;
 
 		//debug_println( packetT );
@@ -1112,32 +1179,6 @@ private:
 			return c - 'A' + 10;
 
 		return 0; // Not a valid hexadecimal character
-	}
-
-	void str_replace(char *src, char *oldchars, char *newchars)
-	{ // utility string function
-		char *p = strstr(src, oldchars);
-		char buf[37];
-		do
-		{
-			if (p)
-			{
-				memset(buf, '\0', strlen(buf));
-				if (src == p)
-				{
-					strcpy(buf, newchars);
-					strcat(buf, p + strlen(oldchars));
-				}
-				else
-				{
-					strncpy(buf, src, strlen(src) - strlen(p));
-					strcat(buf, newchars);
-					strcat(buf, p + strlen(oldchars));
-				}
-				memset(src, '\0', strlen(src));
-				strcpy(src, buf);
-			}
-		} while (p && (p = strstr(src, oldchars)));
 	}
 
 	void hsi2rgbw(float H, float S, float I, int *rgbw)
