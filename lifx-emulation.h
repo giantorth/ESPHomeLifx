@@ -1,7 +1,7 @@
 #include "esphome.h"
 #include <ESPAsyncUDP.h>
 
-#define DEBUGOFF
+#define DEBUG
 
 #ifdef DEBUG
 #define debug_print(x, ...) Serial.print(x, ##__VA_ARGS__)
@@ -23,9 +23,7 @@ struct LifxPacket
 	byte bulbAddress[6]; //device mac
 	uint16_t reserved2;	 // mac padding
 	byte site[6];		 // "reserved"
-						 //bool res_required; // response message required
-						 //bool ack_required; // acknowledgement message required
-						 //bool reservedbits[6]; // 6 bits of reserved?
+
 	uint8_t res_ack;
 	uint8_t sequence; //message sequence number
 
@@ -50,99 +48,109 @@ const unsigned int LifxBulbTagLabelsLength = 32;
 #define LIFX_MAX_PACKET_LENGTH 512
 
 // firmware versions, etc
-const unsigned int LifxBulbVendor = 1;
-const unsigned int LifxBulbProduct = 22;
-const unsigned int LifxBulbVersion = 0;
-const unsigned int LifxFirmwareVersionMajor = 1;
-const unsigned int LifxFirmwareVersionMinor = 5;
-const unsigned int LifxMagicNum = 614500;
+const byte LifxBulbVendor = 1;
+const byte LifxBulbProduct = 22;
+const byte LifxBulbVersion = 0;
+const byte LifxFirmwareVersionMajor = 1;
+const byte LifxFirmwareVersionMinor = 5;
+const unsigned int LifxMagicNum = 614500;  // still a mystery
 
 const byte SERVICE_UDP = 0x01;
 const byte SERVICE_TCP = 0x02;
-const byte SERVICE_UDP5 = 0x05; // Real bulbs seem to ofer this service too
+const byte SERVICE_UDP5 = 0x05; // Real bulbs seem to ofer this service too...
 
-//incoming packet RES/ACK values
-const byte RES_REQUIRED = 0x05;
-const byte ACK_REQUIRED = 0x06;
-const byte RES_ACK_REQUIRED = 0x00; // unknown value, no real packets seem to set both
-
-// outgoing packet RES/ACK values
-const byte NO_RES_NO_ACK = 0x00;
-const byte RES_NO_ACK = 0x01; // Real bulb repsonse for STATE_
-const byte NO_RES_ACK = 0x02;
-const byte RES_ACK = 0x03;
+// Packet RES/ACK values
+const byte NO_RESPONSE = 0x00;
+const byte RES_REQUIRED = 0x01;
+const byte ACK_REQUIRED = 0x02;
+const byte RES_ACK_REQUIRED = 0x03; // unknown value, no real packets seem to set both
+const byte PAN_REQUIRED = 0x04; // Set on GET_PAN_GATEWAY (third bit on only)
+const byte RES_PAN_REQUIRED = 0x05; // set on multiple packets (first and third bit set)
+const byte ACK_PAN_REQUIRED = 0x06; // bits 2/3 on
+const byte RES_ACK_PAN_REQUIRED = 0x07;  // All three bits set
 
 // Device Messages
 const byte GET_PAN_GATEWAY = 0x02;
 const byte PAN_GATEWAY = 0x03; // stateService(3)
 
 const byte GET_HOST_INFO = 0x0c; // getHostInfo(12)
-const byte HOST_INFO = 0x0d; // stateHostInfo(13)
+const byte HOST_INFO = 0x0d;	 // stateHostInfo(13)
 
-const byte GET_MESH_FIRMWARE_STATE = 0x0e;  //getHostFirmware(14)
-const byte MESH_FIRMWARE_STATE = 0x0f; // stateHostFirmware(15)
+const byte GET_MESH_FIRMWARE_STATE = 0x0e; //getHostFirmware(14)
+const byte MESH_FIRMWARE_STATE = 0x0f;	   // stateHostFirmware(15)
 
 const byte GET_WIFI_INFO = 0x10; // getWifiInfo (16)
-const byte WIFI_INFO = 0x11; // stateWifiInfo (17)
+const byte WIFI_INFO = 0x11;	 // stateWifiInfo (17)
 
 const byte GET_WIFI_FIRMWARE_STATE = 0x12; // getWifiFirmware(18)
-const byte WIFI_FIRMWARE_STATE = 0x13;  // stateWifiFirmware(19)
+const byte WIFI_FIRMWARE_STATE = 0x13;	   // stateWifiFirmware(19)
 
 const byte GET_POWER_STATE = 0x14; // getPower(20)
 const byte SET_POWER_STATE = 0x15; // setPower(21)
-const byte POWER_STATE = 0x16;  // statePower(22)
+const byte POWER_STATE = 0x16;	   // statePower(22)
 
 const byte GET_BULB_LABEL = 0x17; // getLabel(23)
 const byte SET_BULB_LABEL = 0x18; // setLabel(24)
-const byte BULB_LABEL = 0x19; // stateLabel(25)
+const byte BULB_LABEL = 0x19;	  // stateLabel(25)
 
-const byte GET_BULB_TAGS = 0x1a;  // unlisted packets
-const byte SET_BULB_TAGS = 0x1b;  // 
-const byte BULB_TAGS = 0x1c; // 
+const byte GET_BULB_TAGS = 0x1a; // unlisted packets
+const byte SET_BULB_TAGS = 0x1b; //
+const byte BULB_TAGS = 0x1c;	 //
 
-const byte GET_BULB_TAG_LABELS = 0x1d;  // unlisted packets
+const byte GET_BULB_TAG_LABELS = 0x1d; // unlisted packets
 const byte SET_BULB_TAG_LABELS = 0x1e;
 const byte BULB_TAG_LABELS = 0x1f;
 
 const byte GET_VERSION_STATE = 0x20; // getVersion(32)
-const byte VERSION_STATE = 0x21; // stateVersion(33)
+const byte VERSION_STATE = 0x21;	 // stateVersion(33)
 
-const byte GET_INFO = 0x22; // getInfo(34)
+const byte GET_INFO = 0x22;	  // getInfo(34)
 const byte STATE_INFO = 0x23; // stateInfo(35)
 
 // no documented packets 0x24 thru 0x2c
 
 const byte ACKNOWLEDGEMENT = 0x2d; // acknowledgement(45)
+const byte RESET_BULB = 0x2e; // sent on bulb reset? 24 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1E 00 00 00 00 00 00 00 00 2E 00 00 00
 
-const byte GET_LOCATION_STATE = 0x30;  // getLocation(48)
+const byte GET_LOCATION_STATE = 0x30; // getLocation(48)
 const byte SET_LOCATION_STATE = 0x31; // setLocation(49)
-const byte LOCATION_STATE = 0x32; // stateLocation(50)
+const byte LOCATION_STATE = 0x32;	  // stateLocation(50)
 
-const byte GET_GROUP_STATE = 0x33;  // getGroup(51)
-const byte SET_GROUP_STATE = 0x34;  // setGroup(52)
-const byte GROUP_STATE = 0x35; // stateGroup(53) - res_required
+const byte GET_GROUP_STATE = 0x33; // getGroup(51)
+const byte SET_GROUP_STATE = 0x34; // setGroup(52)
+const byte GROUP_STATE = 0x35;	   // stateGroup(53) - res_required
 
 const byte GET_AUTH_STATE = 0x36; // Mystery packets queried first by apps, need to add to wireshark plugin
-const byte AUTH_STATE = 0x38;
+const byte SET_AUTH_STATE = 0x37; // Sent on bulb reset 5C 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1A 00 00 00 00 00 00 00 00 37 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 5E 2C B2 27 FA 35 16 
+const byte AUTH_STATE = 0x38; // stateAuth(56) - sending a canned response 
 
-const byte ECHO_REQUEST = 0x3a; // echoRequest(58)
-const byte ECHO_RESPONSE = 0x3b;  // echoResponse(59)
+const byte ECHO_REQUEST = 0x3a;	 // echoRequest(58)
+const byte ECHO_RESPONSE = 0x3b; // echoResponse(59)
 
 // Light Messages
 const byte GET_LIGHT_STATE = 0x65; // get(101)
 const byte SET_LIGHT_STATE = 0x66; // setColor(102)
-const byte SET_WAVEFORM = 0x67; // setWaveform(103)
+const byte SET_WAVEFORM = 0x67;	   // setWaveform(103)
 
 const byte LIGHT_STATUS = 0x6b; // state(107) - res_required
 
 const byte GET_POWER_STATE2 = 0x74; // getPower(116)
 const byte SET_POWER_STATE2 = 0x75; // setPower(117)
-const byte POWER_STATE2 = 0x76; // statePower(118)
+const byte POWER_STATE2 = 0x76;		// statePower(118)
 
-const byte SET_WAVEFORM_OPTIONAL = 0x77;  // setWaveformOptional(119)
-const byte GET_INFARED_STATE = 0x78; // getInfared(120)
-const byte STATE_INFARED_STATE = 0x79; // stateInfared(121)
-const byte SET_INFARED_STATE = 0x7A; // setInfrared(122)
+const byte SET_WAVEFORM_OPTIONAL = 0x77; // setWaveformOptional(119)
+const byte GET_INFARED_STATE = 0x78;	 // getInfared(120)
+const byte STATE_INFARED_STATE = 0x79;	 // stateInfared(121)
+const byte SET_INFARED_STATE = 0x7A;	 // setInfrared(122)
+
+// unknown packets during bulb reset 
+const byte GET_CLOUD_STATE = 0xc9; // getCloud(201) - guessing
+const byte CA_PACKET = 0xca; // setCloudState? (202) 25 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1D 00 00 00 00 00 00 00 00 CA 00 00 00 00 
+const byte SET_CLOUD_STATE = 0xcb; // stateCloud(203) - guessing
+
+const byte CD_PACKET = 0xcd; // (205) 44 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1C 00 00 00 00 00 00 00 00 CD 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+const byte D1_PACKET = 0xd1; // (209) 45 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1B 00 00 00 00 00 00 00 00 D1 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+const byte D2_packet = 0xd2; // (210) 24 00 00 14 10 00 E5 15 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 05 1C 00 00 00 00 00 00 00 00 D2 00 00 00
 
 // helpers
 #define SPACE " "
@@ -159,20 +167,21 @@ public:
 	char bulbLocation[32] = "L";
 	char bulbLocationGUID[37] = "b49bed4d-77b0-05a3-9ec3-be93d9582f1f";
 	uint64_t bulbLocationTime = 1553350342028441856;
-									
+
 	char bulbGroup[32] = "G";
 	char bulbGroupGUID[37] = "bd93e53d-2014-496f-8cfd-b8886f766d7a";
 	uint64_t bulbGroupTime = 1600213602318000000;
 
-	void set_bulbLabel(const char *arg) {strcpy(bulbLabel,arg);}
+	// need to change, strcpy will not erase prior string contents
+	void set_bulbLabel(const char *arg) { strcpy(bulbLabel, arg); }
 
-    void set_bulbLocation(const char *arg) {strcpy(bulbLocation,arg);}
-    void set_bulbLocationGUID(const char *arg) {strcpy(bulbLocationGUID,arg);}
-    void set_bulbLocationTime(uint64_t arg) {bulbLocationTime=arg;}
+	void set_bulbLocation(const char *arg) { strcpy(bulbLocation, arg); }
+	void set_bulbLocationGUID(const char *arg) { strcpy(bulbLocationGUID, arg); }
+	void set_bulbLocationTime(uint64_t arg) { bulbLocationTime = arg; }
 
-    void set_bulbGroup(const char *arg) {strcpy(bulbGroup,arg);}
-    void set_bulbGroupGUID(const char *arg) {strcpy(bulbGroupGUID,arg);}
-    void set_bulbGroupTime(uint64_t arg) {bulbGroupTime=arg;}
+	void set_bulbGroup(const char *arg) { strcpy(bulbGroup, arg); }
+	void set_bulbGroupGUID(const char *arg) { strcpy(bulbGroupGUID, arg); }
+	void set_bulbGroupTime(uint64_t arg) { bulbGroupTime = arg; }
 
 	byte bulbGroupGUIDb[16] = {};
 	byte bulbLocationGUIDb[16] = {};
@@ -187,13 +196,15 @@ public:
 		//strcpy(bulbLabel, bulbLabelToSet);
 		debug_println(bulbLabel);
 
-		// Only want to do on boot
-		hexCharacterStringToBytes( bulbGroupGUIDb, (const char *) bulbGroupGUID );  // strips dashes too
-		hexCharacterStringToBytes( bulbLocationGUIDb, (const char *) bulbLocationGUID );  // strips dashes too
+		// Convert incoming guids strings to a byte array
+		// Will strip an even number of dashes if included
+		hexCharacterStringToBytes(bulbGroupGUIDb, (const char *)bulbGroupGUID);		  // strips dashes too
+		hexCharacterStringToBytes(bulbLocationGUIDb, (const char *)bulbLocationGUID); // strips dashes too
+
+		debug_print( "Wifi Signal: " );
+		debug_println( WiFi.RSSI(), DEC );
 
 		// start listening for packets
-		bool block = 0;
-		long pNo = 0;
 		if (Udp.listen(LifxPort))
 		{
 			ESP_LOGD("LIFXUDP", "Listerner Enabled");
@@ -236,6 +247,8 @@ private:
 	uint32_t dur = 0;
 	uint8_t _sequence = 0;
 	double lastChange = millis();
+	uint32_t tx_bytes = 0;
+	uint32_t rx_bytes = 0;
 
 	byte site_mac[6] = {0x4C, 0x49, 0x46, 0x58, 0x56, 0x32}; // spells out "LIFXV2" - version 2 of the app changes the site address to this...?
 
@@ -244,14 +257,19 @@ private:
 		0, 0, 0, 0, 0, 0, 0, 0};
 	char bulbTagLabels[LifxBulbTagLabelsLength] = "";
 
-	uint8_t guidSeq[16] = { 3,2,1,0,5,4,7,6,8,9,10,11,12,13,14,15 };  // Guids in packets come in a bizzare ordering
+	uint8_t guidSeq[16] = {3, 2, 1, 0, 5, 4, 7, 6, 8, 9, 10, 11, 12, 13, 14, 15}; // Guids in packets come in a bizzare ordering
 
 	// This is an undocumented packet payload I suspect is a firmware checksum, only checked by official apps
-	byte authResponse[56] = {0xd1, 0x74, 0xef, 0x20, 0x68, 0x02, 0x4c, 0x3b, 0x94, 0xf7, 0x24, 0x71, 0x33, 0xc2, 0x98, 0x9a,
+	byte authResponse[56] = {0xd1, 0x74, 0xef, 0x20, 0x68, 0x02, 0x4c, 0x3b, 0x94, 0xf7, 0x24, 0x71, 0x33, 0xc2, 0x98, 0x9a, // 16 mystery bytes
 							 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 							 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-							 0x00, 0x39, 0x3b, 0x63, 0x31, 0x64, 0x5b, 0x15};
-
+							 0x00, 0x39, 0x3b, 0x63, 0x31, 0x64, 0x5b, 0x15}; // 8 more mystery bytes
+	/*
+	00	00	00	00	00	00	00	00	00	00	00	00
+	00	00	00	00	00	00	00	00	00	00	00	00	00	00	00	00
+	00	00	00	00	00	00	00	00	00	00	00	00	00	00	00	00
+	00	00	00	00	00	5E	2C	B2	27	FA	35	16
+	*/
 	// Should probably check if wifi is up first before doing this
 	AsyncUDP Udp;
 
@@ -272,6 +290,7 @@ private:
 	void incomingUDP(AsyncUDPPacket &packet)
 	{
 		int packetSize = packet.length();
+		rx_bytes += packetSize;
 
 		// Changed from a pointer to a memcpy when trying to chase down a bug, likely not needed.  Was worried about simultanious packets.
 		//uint8_t *packetBuffer = packet.data();
@@ -294,8 +313,8 @@ private:
 		{
 			if (packetBuffer[i] <= 0x0F)
 			{
-				debug_print(F("0"));
-			} // pad with zeros for proper alignment with web packet decoder tools
+				debug_print(F("0")); // pad with zeros for proper alignment with web packet decoder tools
+			}
 			debug_print(packetBuffer[i], HEX);
 			debug_print(SPACE);
 		}
@@ -369,545 +388,563 @@ private:
 		switch (request.packet_type)
 		{
 			// default to no RES/ACK on packet
-			response.res_ack = NO_RES_NO_ACK;
+			response.res_ack = NO_RESPONSE;
 
-		case GET_PAN_GATEWAY:
-		{
-			// we are a gateway, so respond to this
-			//debug_println(F(">>GET_PAN_GATEWAY Discovery Packet"));
+			case GET_PAN_GATEWAY:
+			{
+				// we are a gateway, so respond to this
+				//debug_println(F(">>GET_PAN_GATEWAY Discovery Packet"));
 
-			// respond with the UDP port
-			response.packet_type = PAN_GATEWAY;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			response.res_ack = RES_NO_ACK;
-			byte UDPdata[] = {
-				SERVICE_UDP, //UDP
-				lowByte(LifxPort),
-				highByte(LifxPort),
-				0x00,
-				0x00};
-			byte UDPdata5[] = {
-				SERVICE_UDP5, //UDP
-				lowByte(LifxPort),
-				highByte(LifxPort),
-				0x00,
-				0x00};
+				// respond with the UDP port
+				response.packet_type = PAN_GATEWAY;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				//response.res_ack = RES_REQUIRED;
+				byte UDPdata[] = {
+					SERVICE_UDP, //UDP
+					lowByte(LifxPort),
+					highByte(LifxPort),
+					0x00,
+					0x00};
+				byte UDPdata5[] = {
+					SERVICE_UDP5, //UDP
+					lowByte(LifxPort),
+					highByte(LifxPort),
+					0x00,
+					0x00};
 
-			// A real bulb seems to respond multiple times, once as service type 5
-			memcpy(response.data, UDPdata, sizeof(UDPdata));
-			response.data_size = sizeof(UDPdata);
-			sendPacket(response, packet);
-			memcpy(response.data, UDPdata5, sizeof(UDPdata));
-			response.data_size = sizeof(UDPdata);
-			sendPacket(response, packet);
-		}
-		break;
+				// A real bulb seems to respond multiple times, once as service type 5
+				memcpy(response.data, UDPdata, sizeof(UDPdata));
+				response.data_size = sizeof(UDPdata);
+				sendPacket(response, packet);
+				memcpy(response.data, UDPdata5, sizeof(UDPdata));
+				response.data_size = sizeof(UDPdata);
+				sendPacket(response, packet);
+			}
+			break;
 
-		case SET_LIGHT_STATE:
-		{
-			// set the light colors
-			hue = word(request.data[2], request.data[1]);
-			sat = word(request.data[4], request.data[3]);
-			bri = word(request.data[6], request.data[5]);
-			kel = word(request.data[8], request.data[7]);
-			dur = (uint32_t)request.data[9] << 0 |
-				  (uint32_t)request.data[10] << 8 |
-				  (uint32_t)request.data[11] << 16 |
-				  (uint32_t)request.data[12] << 24;
+			case SET_LIGHT_STATE:
+			{
+				// set the light colors
+				hue = word(request.data[2], request.data[1]);
+				sat = word(request.data[4], request.data[3]);
+				bri = word(request.data[6], request.data[5]);
+				kel = word(request.data[8], request.data[7]);
+				dur = (uint32_t)request.data[9] << 0 |
+					(uint32_t)request.data[10] << 8 |
+					(uint32_t)request.data[11] << 16 |
+					(uint32_t)request.data[12] << 24;
 
-			setLight();
-		}
-		break;
+				setLight();
+			}
+			break;
 
-		case SET_WAVEFORM:
-		{
-			hue = word(request.data[3], request.data[2]);
-			sat = word(request.data[5], request.data[4]);
-			bri = word(request.data[7], request.data[6]);
-			kel = word(request.data[9], request.data[8]);
-			// duration should be multiplied by cycles in theory but ignored for now
-			dur = (uint32_t)request.data[10] << 0 |
-				  (uint32_t)request.data[11] << 8 |
-				  (uint32_t)request.data[12] << 16 |
-				  (uint32_t)request.data[13] << 24;
-			setLight();
-		}
-		break;
-
-		case SET_WAVEFORM_OPTIONAL:
-		{
-			if (request.data[21])
-			{ // ignore hue?
-				debug_print(F(" set hue "));
+			case SET_WAVEFORM:
+			{
 				hue = word(request.data[3], request.data[2]);
-			}
-			if (request.data[22])
-			{ // ignore sat?
-				debug_print(F(" set sat "));
 				sat = word(request.data[5], request.data[4]);
-			}
-			if (request.data[23])
-			{ // ignore bri?
-				debug_print(F(" set bri "));
 				bri = word(request.data[7], request.data[6]);
-			}
-			if (request.data[24])
-			{ // ignore kel?
-				debug_print(F(" set kel "));
 				kel = word(request.data[9], request.data[8]);
+				// duration should be multiplied by cycles in theory but ignored for now
+				dur = (uint32_t)request.data[10] << 0 |
+					(uint32_t)request.data[11] << 8 |
+					(uint32_t)request.data[12] << 16 |
+					(uint32_t)request.data[13] << 24;
+				setLight();
 			}
-			dur = (uint32_t)request.data[10] << 0 |
-				  (uint32_t)request.data[11] << 8 |
-				  (uint32_t)request.data[12] << 16 |
-				  (uint32_t)request.data[13] << 24;
+			break;
 
-			// period uint32_t
-			// cycles float
-			// skew_ratio uint16_t
-			// waveform uint8_t
-
-			// not supported, all the waveform flags
-			setLight();
-		}
-		break;
-
-		case GET_LIGHT_STATE:
-		{
-			response.res_ack = NO_RES_NO_ACK;
-			// send the light's state
-			response.packet_type = LIGHT_STATUS;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			byte StateData[] = {
-				lowByte(hue),			//hue
-				highByte(hue),			//hue
-				lowByte(sat),			//sat
-				highByte(sat),			//sat
-				lowByte(bri),			//bri
-				highByte(bri),			//bri
-				lowByte(kel),			//kel
-				highByte(kel),			//kel
-				lowByte(dim),			// listed as reserved in protocol
-				highByte(dim),			// listed as reserved in protocol
-				lowByte(power_status),	//power status
-				highByte(power_status), //power status
-				// label
-				lowByte(bulbLabel[0]),
-				lowByte(bulbLabel[1]),
-				lowByte(bulbLabel[2]),
-				lowByte(bulbLabel[3]),
-				lowByte(bulbLabel[4]),
-				lowByte(bulbLabel[5]),
-				lowByte(bulbLabel[6]),
-				lowByte(bulbLabel[7]),
-				lowByte(bulbLabel[8]),
-				lowByte(bulbLabel[9]),
-				lowByte(bulbLabel[10]),
-				lowByte(bulbLabel[11]),
-				lowByte(bulbLabel[12]),
-				lowByte(bulbLabel[13]),
-				lowByte(bulbLabel[14]),
-				lowByte(bulbLabel[15]),
-				lowByte(bulbLabel[16]),
-				lowByte(bulbLabel[17]),
-				lowByte(bulbLabel[18]),
-				lowByte(bulbLabel[19]),
-				lowByte(bulbLabel[20]),
-				lowByte(bulbLabel[21]),
-				lowByte(bulbLabel[22]),
-				lowByte(bulbLabel[23]),
-				lowByte(bulbLabel[24]),
-				lowByte(bulbLabel[25]),
-				lowByte(bulbLabel[26]),
-				lowByte(bulbLabel[27]),
-				lowByte(bulbLabel[28]),
-				lowByte(bulbLabel[29]),
-				lowByte(bulbLabel[30]),
-				lowByte(bulbLabel[31]),
-				//tags/reserved/unused
-				lowByte(bulbTags[0]),
-				lowByte(bulbTags[1]),
-				lowByte(bulbTags[2]),
-				lowByte(bulbTags[3]),
-				lowByte(bulbTags[4]),
-				lowByte(bulbTags[5]),
-				lowByte(bulbTags[6]),
-				lowByte(bulbTags[7])};
-
-			memcpy(response.data, StateData, sizeof(StateData));
-			response.data_size = sizeof(StateData);
-			sendPacket(response, packet);
-		}
-		break;
-
-		case SET_POWER_STATE:
-		case SET_POWER_STATE2:
-		{
-			power_status = word(request.data[1], request.data[0]);
-			setLight();
-
-			// real bulbs send an ACK packet on a set power
-			// TODO: Refactor to ack properly regardless of incoming packet
-			response.packet_type = ACKNOWLEDGEMENT;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			byte ack[] = {};
-			response.data_size = sizeof(ack);
-			memcpy(response.data, ack, response.data_size);
-			sendPacket(response, packet);
-		}
-		break;
-
-		case GET_POWER_STATE:
-		case GET_POWER_STATE2:
-		{
-			response.packet_type = POWER_STATE;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			byte PowerData[] = {
-				lowByte(power_status),
-				highByte(power_status)};
-
-			memcpy(response.data, PowerData, sizeof(PowerData));
-			response.data_size = sizeof(PowerData);
-			sendPacket(response, packet);
-		}
-		break;
-
-		case SET_BULB_LABEL:
-		{			
-			
-			for (int i = 0; i < LifxBulbLabelLength; i++)
+			case SET_WAVEFORM_OPTIONAL:
 			{
-				if (bulbLabel[i] != request.data[i])
-				{
-					bulbLabel[i] = request.data[i];
-					//EEPROM.write(EEPROM_BULB_LABEL_START + i, request.data[i]);
+				if (request.data[21])
+				{ // ignore hue?
+					debug_print(F(" set hue "));
+					hue = word(request.data[3], request.data[2]);
 				}
+				if (request.data[22])
+				{ // ignore sat?
+					debug_print(F(" set sat "));
+					sat = word(request.data[5], request.data[4]);
+				}
+				if (request.data[23])
+				{ // ignore bri?
+					debug_print(F(" set bri "));
+					bri = word(request.data[7], request.data[6]);
+				}
+				if (request.data[24])
+				{ // ignore kel?
+					debug_print(F(" set kel "));
+					kel = word(request.data[9], request.data[8]);
+				}
+				dur = (uint32_t)request.data[10] << 0 |
+					(uint32_t)request.data[11] << 8 |
+					(uint32_t)request.data[12] << 16 |
+					(uint32_t)request.data[13] << 24;
+
+				// period uint32_t
+				// cycles float
+				// skew_ratio uint16_t
+				// waveform uint8_t
+
+				// not supported, all the waveform flags
+				setLight();
 			}
-			// real bulbs send an ACK packet on a set power
-			// TODO: Refactor to ack properly regardless of incoming packet
-			response.packet_type = ACKNOWLEDGEMENT;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			byte ack[] = {};
-			response.data_size = sizeof(ack);
-			memcpy(response.data, ack, response.data_size);
-			sendPacket(response, packet);
-		}
-		break;
+			break;
 
-		case GET_BULB_LABEL:
-		{
-			response.packet_type = BULB_LABEL;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			memcpy(response.data, bulbLabel, sizeof(bulbLabel));
-			response.data_size = sizeof(bulbLabel);
-			sendPacket(response, packet);
-		}
-		break;
-
-		case SET_BULB_TAGS:
-		case GET_BULB_TAGS:
-		{
-			// set if we are setting
-			if (request.packet_type == SET_BULB_TAGS)
+			case GET_LIGHT_STATE:
 			{
-				for (int i = 0; i < LifxBulbTagsLength; i++)
+				response.res_ack = NO_RESPONSE;
+				// send the light's state
+				response.packet_type = LIGHT_STATUS;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				byte StateData[52] = {
+					lowByte(hue),			//hue
+					highByte(hue),			//hue
+					lowByte(sat),			//sat
+					highByte(sat),			//sat
+					lowByte(bri),			//bri
+					highByte(bri),			//bri
+					lowByte(kel),			//kel
+					highByte(kel),			//kel
+					lowByte(dim),			// listed as reserved in protocol
+					highByte(dim),			// listed as reserved in protocol
+					lowByte(power_status),	//power status
+					highByte(power_status), //power status
+				};
+				for( int i = 0; i < sizeof( bulbLabel ); i++ ) {
+					StateData[i+12] = bulbLabel[i];
+				}
+				for( int j = 0; j < sizeof( bulbTags ); j++ ) {
+					StateData[j+12+32] = bulbTags[j];
+				}
+				memcpy(response.data, StateData, sizeof(StateData));
+				response.data_size = sizeof(StateData);
+				sendPacket(response, packet);
+			}
+			break;
+
+			case SET_POWER_STATE:
+			case SET_POWER_STATE2:
+			{
+				power_status = word(request.data[1], request.data[0]);
+				setLight();
+			}
+			break;
+
+			case GET_POWER_STATE:
+			case GET_POWER_STATE2:
+			{
+				response.packet_type = POWER_STATE;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				byte PowerData[] = {
+					lowByte(power_status),
+					highByte(power_status)};
+
+				memcpy(response.data, PowerData, sizeof(PowerData));
+				response.data_size = sizeof(PowerData);
+				sendPacket(response, packet);
+			}
+			break;
+
+			case SET_BULB_LABEL:
+			{
+
+				for (int i = 0; i < LifxBulbLabelLength; i++)
 				{
-					if (bulbTags[i] != request.data[i])
+					if (bulbLabel[i] != request.data[i])
 					{
-						bulbTags[i] = lowByte(request.data[i]);
-						//EEPROM.write(EEPROM_BULB_TAGS_START + i, request.data[i]);
+						bulbLabel[i] = request.data[i];
+						//EEPROM.write(EEPROM_BULB_LABEL_START + i, request.data[i]);
 					}
 				}
 			}
+			break;
 
-			// respond to both get and set commands
-			response.packet_type = BULB_TAGS;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			memcpy(response.data, bulbTags, sizeof(bulbTags));
-			response.data_size = sizeof(bulbTags);
-			sendPacket(response, packet);
-		}
-		break;
-
-		case SET_BULB_TAG_LABELS:
-		case GET_BULB_TAG_LABELS:
-		{
-			// set if we are setting
-			if (request.packet_type == SET_BULB_TAG_LABELS)
+			case GET_BULB_LABEL:
 			{
-				for (int i = 0; i < LifxBulbTagLabelsLength; i++)
+				response.packet_type = BULB_LABEL;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				memcpy(response.data, bulbLabel, sizeof(bulbLabel));
+				response.data_size = sizeof(bulbLabel);
+				sendPacket(response, packet);
+			}
+			break;
+
+			case SET_BULB_TAGS:
+			case GET_BULB_TAGS:
+			{
+				// set if we are setting
+				if (request.packet_type == SET_BULB_TAGS)
 				{
-					if (bulbTagLabels[i] != request.data[i])
+					for (int i = 0; i < LifxBulbTagsLength; i++)
 					{
-						bulbTagLabels[i] = request.data[i];
-						//EEPROM.write(EEPROM_BULB_TAG_LABELS_START + i, request.data[i]);
+						if (bulbTags[i] != request.data[i])
+						{
+							bulbTags[i] = lowByte(request.data[i]);
+							//EEPROM.write(EEPROM_BULB_TAGS_START + i, request.data[i]);
+						}
+					}
+				}
+
+				// respond to both get and set commands
+				response.packet_type = BULB_TAGS;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				memcpy(response.data, bulbTags, sizeof(bulbTags));
+				response.data_size = sizeof(bulbTags);
+				sendPacket(response, packet);
+			}
+			break;
+
+			case SET_BULB_TAG_LABELS:
+			case GET_BULB_TAG_LABELS:
+			{
+				// set if we are setting
+				if (request.packet_type == SET_BULB_TAG_LABELS)
+				{
+					for (int i = 0; i < LifxBulbTagLabelsLength; i++)
+					{
+						if (bulbTagLabels[i] != request.data[i])
+						{
+							bulbTagLabels[i] = request.data[i];
+							//EEPROM.write(EEPROM_BULB_TAG_LABELS_START + i, request.data[i]);
+						}
+					}
+				}
+
+				// respond to both get and set commands
+				response.packet_type = BULB_TAG_LABELS;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				memcpy(response.data, bulbTagLabels, sizeof(bulbTagLabels));
+				response.data_size = sizeof(bulbTagLabels);
+				sendPacket(response, packet);
+			}
+			break;
+
+			case SET_LOCATION_STATE:
+			{
+				// TODO: Actually write out values to somewhere besides memory
+				// this needs constants
+				for (int i = 0; i < 16; i++)
+				{
+					bulbLocationGUIDb[i] = request.data[i];
+				}
+				for (int j = 0; j < 32; j++)
+				{
+					bulbLocation[j] = request.data[j + 16];
+				}
+				if (request.data[16 + 32] == 0)
+				{ // Did they send us no value? use now
+					auto time = ha_time->utcnow();
+					// generate a msec value from epoch and then stuff 6 more zeros on the end for a magic number
+					bulbLocationTime = (uint64_t)(((uint64_t)time.timestamp * 1000) * 1000000 + LifxMagicNum);
+				}
+				else
+				{
+					uint8_t *p = (uint8_t *)&bulbLocationTime;
+					for (int k = 0; k < 8; k++)
+					{
+						p[k] = request.data[k + 32 + 16];
 					}
 				}
 			}
+			break;
 
-			// respond to both get and set commands
-			response.packet_type = BULB_TAG_LABELS;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			memcpy(response.data, bulbTagLabels, sizeof(bulbTagLabels));
-			response.data_size = sizeof(bulbTagLabels);
-			sendPacket(response, packet);
-		}
-		break;
-
-		case SET_LOCATION_STATE:
-		{
-			// TODO: Actually write out values to somewhere besides memory
-			// this needs constants
-			for( int i = 0; i < 16; i++ ) {
-				bulbLocationGUIDb[i] = request.data[i];
-			}
-			for( int j = 0; j < 32; j++ ) {
-				bulbLocation[j] = request.data[j+16];
-			}
-			if( request.data[16+32] == 0 ) {  // Did they send us no value? use now
-				auto time = ha_time->utcnow();
-				// generate a msec value from epoch and then stuff 6 more zeros on the end for a magic number
-				bulbLocationTime = (uint64_t)(((uint64_t)time.timestamp * 1000) * 1000000 + LifxMagicNum);
-			} else {
+			case GET_LOCATION_STATE:
+			{
+				response.packet_type = LOCATION_STATE;
+				response.res_ack = RES_REQUIRED;
+				response.protocol = LifxProtocol_AllBulbsResponse;
 				uint8_t *p = (uint8_t *)&bulbLocationTime;
-				for( int k = 0; k < 8; k++ ) {
-					p[k] = request.data[k+32+16];  
+				byte LocationStateResponse[56] = {};
+				for (int i = 0; i < sizeof(bulbLocationGUIDb); i++)
+				{
+					LocationStateResponse[i] = bulbLocationGUIDb[guidSeq[i]]; // special sequence
+				}
+				for (int j = 0; j < sizeof(bulbLocation); j++)
+				{
+					LocationStateResponse[j + 16] = bulbLocation[j];
+				}
+				for (int k = 0; k < sizeof(bulbLocationTime); k++)
+				{
+					LocationStateResponse[k + 32 + 16] = p[k];
+				}
+
+				memcpy(response.data, LocationStateResponse, sizeof(LocationStateResponse));
+				response.data_size = sizeof(LocationStateResponse);
+				sendPacket(response, packet);
+			}
+			break;
+
+			case GET_AUTH_STATE:
+			{
+				response.packet_type = AUTH_STATE;
+				response.res_ack = RES_REQUIRED;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				memcpy(response.data, authResponse, sizeof(authResponse));
+				response.data_size = sizeof(authResponse);
+				sendPacket(response, packet);
+			}
+			break;
+
+			case SET_GROUP_STATE:
+			{
+				// TODO: Actually write out values to somewhere besides memory
+				// this needs constants
+				for (int i = 0; i < 16; i++)
+				{
+					bulbGroupGUIDb[i] = request.data[i];
+				}
+				for (int j = 0; j < 32; j++)
+				{
+					bulbGroup[j] = request.data[j + 16];
+				}
+				if (request.data[16 + 32] == 0)
+				{ // Did they send us no value? use now
+					auto time = ha_time->utcnow();
+					// generate a msec value from epoch and then stuff 6 more zeros on the end for a magic number
+					bulbGroupTime = (uint64_t)(((uint64_t)time.timestamp * 1000) * 1000000 + LifxMagicNum);
+				}
+				else
+				{
+					uint8_t *p = (uint8_t *)&bulbGroupTime;
+					for (int k = 0; k < 8; k++)
+					{
+						p[k] = request.data[k + 32 + 16];
+					}
 				}
 			}
+			break;
 
-			// real bulbs send an ACK packet on a set 
-			// TODO: Refactor to ack properly regardless of incoming packet
-			response.packet_type = ACKNOWLEDGEMENT;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			byte ack[] = {};
-			response.data_size = sizeof(ack);
-			memcpy(response.data, ack, response.data_size);
-			sendPacket(response, packet);
-		}
-		break;
-		
-		case GET_LOCATION_STATE:
-		{
-			response.packet_type = LOCATION_STATE;
-			response.res_ack = RES_NO_ACK;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			uint8_t *p = (uint8_t *)&bulbLocationTime; 
-			byte LocationStateResponse[56] = {};
-			for( int i = 0; i < sizeof(bulbLocationGUIDb); i++ ) {
-				LocationStateResponse[i] = bulbLocationGUIDb[guidSeq[i]];  // special sequence
-			}
-			for( int j = 0; j < sizeof( bulbLocation ); j++ ) {
-				LocationStateResponse[j+16] = bulbLocation[j];
-			}
-			for( int k = 0; k < sizeof(bulbLocationTime); k++ ) {
-				LocationStateResponse[k+32+16] = p[k];
-			}
-
-			memcpy(response.data, LocationStateResponse, sizeof(LocationStateResponse));
-			response.data_size = sizeof(LocationStateResponse);
-			sendPacket(response, packet);
-		}
-		break;
-
-		case GET_AUTH_STATE:
-		{
-			response.packet_type = AUTH_STATE;
-			response.res_ack = RES_NO_ACK;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			memcpy(response.data, authResponse, sizeof(authResponse));
-			response.data_size = sizeof(authResponse);
-			sendPacket(response, packet);
-		}
-		break;
-
-		case SET_GROUP_STATE:
-		{
-			// TODO: Actually write out values to somewhere besides memory
-			// this needs constants
-			for( int i = 0; i < 16; i++ ) {
-				bulbGroupGUIDb[i] = request.data[i];
-			}
-			for( int j = 0; j < 32; j++ ) {
-				bulbGroup[j] = request.data[j+16];
-			}
-			if( request.data[16+32] == 0 ) {  // Did they send us no value? use now
-				auto time = ha_time->utcnow();
-				// generate a msec value from epoch and then stuff 6 more zeros on the end for a magic number
-				bulbGroupTime = (uint64_t)(((uint64_t)time.timestamp * 1000) * 1000000 + LifxMagicNum);
-			} else {
+			case GET_GROUP_STATE:
+			{
+				response.packet_type = GROUP_STATE;
+				response.res_ack = RES_REQUIRED;
+				response.protocol = LifxProtocol_AllBulbsResponse;
 				uint8_t *p = (uint8_t *)&bulbGroupTime;
-				for( int k = 0; k < 8; k++ ) {
-					p[k] = request.data[k+32+16];  
+				byte groupStateResponse[56] = {};
+				for (int i = 0; i < sizeof(bulbGroupGUIDb); i++)
+				{
+					groupStateResponse[i] = bulbGroupGUIDb[guidSeq[i]]; // special sequence
 				}
+				for (int j = 0; j < sizeof(bulbGroup); j++)
+				{
+					groupStateResponse[j + 16] = bulbGroup[j];
+				}
+				for (int k = 0; k < sizeof(bulbGroupTime); k++)
+				{
+					groupStateResponse[k + 32 + 16] = p[k];
+				}
+
+				memcpy(response.data, groupStateResponse, sizeof(groupStateResponse));
+				response.data_size = sizeof(groupStateResponse);
+				sendPacket(response, packet);
 			}
+			break;
 
-			// real bulbs send an ACK packet on a set 
-			// TODO: Refactor to ack properly regardless of incoming packet
-			response.packet_type = ACKNOWLEDGEMENT;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			byte ack[] = {};
-			response.data_size = sizeof(ack);
-			memcpy(response.data, ack, response.data_size);
-			sendPacket(response, packet);
-		}
-		break;
+			case GET_VERSION_STATE:
+			{
+				// respond to get command
+				response.packet_type = VERSION_STATE;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				response.res_ack = RES_REQUIRED; // matching real bulb response
+				byte VersionData[] = {
+					lowByte(LifxBulbVendor),
+					highByte(LifxBulbVendor),
+					0x00,
+					0x00,
+					lowByte(LifxBulbProduct),
+					highByte(LifxBulbProduct),
+					0x00,
+					0x00,
+					lowByte(LifxBulbVersion),
+					highByte(LifxBulbVersion),
+					0x00,
+					0x00};
 
-		case GET_GROUP_STATE:
-		{
-			response.packet_type = GROUP_STATE;
-			response.res_ack = RES_NO_ACK;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			uint8_t *p = (uint8_t *)&bulbGroupTime; 
-			byte groupStateResponse[56] = {};
-			for( int i = 0; i < sizeof(bulbGroupGUIDb); i++ ) {
-				groupStateResponse[i] = bulbGroupGUIDb[guidSeq[i]];  // special sequence
+				memcpy(response.data, VersionData, sizeof(VersionData));
+				response.data_size = sizeof(VersionData);
+				sendPacket(response, packet);
 			}
-			for( int j = 0; j < sizeof( bulbGroup ); j++ ) {
-				groupStateResponse[j+16] = bulbGroup[j];
+			break;
+
+			case GET_MESH_FIRMWARE_STATE:
+			{
+				// respond to get command
+				response.packet_type = MESH_FIRMWARE_STATE;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				response.res_ack = RES_REQUIRED;
+				// timestamp data comes from observed packet from a LIFX v1.5 bulb
+				byte MeshVersionData[] = {
+					0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 build 1502237570000000000
+					0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 reserved 0x14d9051c58189400
+					0x16, 0x00, 0x01, 0x00							// color 1000 Version 65558
+
+					// lowByte(LifxFirmwareVersionMinor),
+					// highByte(LifxFirmwareVersionMinor),
+					// lowByte(LifxFirmwareVersionMajor),
+					// highByte(LifxFirmwareVersionMajor)
+				};
+
+				memcpy(response.data, MeshVersionData, sizeof(MeshVersionData));
+				response.data_size = sizeof(MeshVersionData);
+				sendPacket(response, packet);
 			}
-			for( int k = 0; k < sizeof(bulbGroupTime); k++ ) {
-				groupStateResponse[k+32+16] = p[k];
+			break;
+
+			case GET_WIFI_FIRMWARE_STATE:
+			{
+				// respond to get command
+				response.packet_type = WIFI_FIRMWARE_STATE;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				response.res_ack = RES_REQUIRED;
+				// timestamp data comes from observed packet from a LIFX v1.5 bulb
+				byte WifiVersionData[] = {
+					// Original 1000 values
+					//0x00, 0xc8, 0x5e, 0x31, 0x99, 0x51, 0x86, 0x13, // Original 1000 (1) bulb build timestamp 1406901652000000000
+					//0xc0, 0x0c, 0x07, 0x00, 0x48, 0x46, 0xd9, 0x43, // Original 1000 (1) firmware reserved value 0x43d9464800070cc0
+					//0x05, 0x00, 0x01, 0x00						 // Original 1000 (1) Version 65541
+
+					0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14, // color 1000 build 1456093684000000000
+					0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // color 1000 has no install timestamp
+					0x3e, 0x00, 0x65, 0x00							// color 1000 Version 6619198
+
+					//lowByte(LifxFirmwareVersionMinor),
+					//highByte(LifxFirmwareVersionMinor),
+					//lowByte(LifxFirmwareVersionMajor),
+					//highByte(LifxFirmwareVersionMajor)
+
+				};
+
+				memcpy(response.data, WifiVersionData, sizeof(WifiVersionData));
+				response.data_size = sizeof(WifiVersionData);
+				sendPacket(response, packet);
 			}
+			break;
 
-			memcpy(response.data, groupStateResponse, sizeof(groupStateResponse));
-			response.data_size = sizeof(groupStateResponse);
-			sendPacket(response, packet);
-		}
-		break;
+			case GET_WIFI_INFO:
+			{
+				// TODO
+				response.packet_type = WIFI_INFO;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				float rssi = pow( 10, ( WiFi.RSSI() / 10 ) );
+				// Just a guess val = math.floor(10 * math.log10(signal) + 0.5)
+				debug_print( "RSSI: ");
+				debug_println( rssi, DEC );
 
-		case GET_VERSION_STATE:
-		{
-			// respond to get command
-			response.packet_type = VERSION_STATE;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			response.res_ack = RES_NO_ACK; // matching real bulb response
-			byte VersionData[] = {
-				lowByte(LifxBulbVendor),
-				highByte(LifxBulbVendor),
-				0x00,
-				0x00,
-				lowByte(LifxBulbProduct),
-				highByte(LifxBulbProduct),
-				0x00,
-				0x00,
-				lowByte(LifxBulbVersion),
-				highByte(LifxBulbVersion),
-				0x00,
-				0x00};
+				// fetch some byte pointers
+				byte *rssi_p = (byte *)&rssi;
+				byte *tx_p = (byte *) &tx_bytes;
+				byte *rx_p = (byte *) &rx_bytes;
 
-			memcpy(response.data, VersionData, sizeof(VersionData));
-			response.data_size = sizeof(VersionData);
-			sendPacket(response, packet);
-		}
-		break;
+				byte wifiInfo[] = {
+					rssi_p[0],
+					rssi_p[1],
+					rssi_p[2],
+					rssi_p[3],
+					tx_p[0],
+					tx_p[1],
+					tx_p[2],
+					tx_p[3],
+					rx_p[0],
+					rx_p[1],
+					rx_p[2],
+					rx_p[3],
+					0x00,
+					0x00					
+				}; 
 
-		case GET_MESH_FIRMWARE_STATE:
-		{
-			// respond to get command
-			response.packet_type = MESH_FIRMWARE_STATE;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			response.res_ack = RES_NO_ACK;
-			// timestamp data comes from observed packet from a LIFX v1.5 bulb
-			byte MeshVersionData[] = {
-				0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 build 1502237570000000000
-				0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 reserved 0x14d9051c58189400
-				0x16, 0x00, 0x01, 0x00							// color 1000 Version 65558
-				// 0x00, 0x2e, 0xc3, 0x8b, 0xef, 0x30, 0x86, 0x13, //build timestamp
-				// 0xe0, 0x25, 0x76, 0x45, 0x69, 0x81, 0x8b, 0x13, //install timestamp
-				// lowByte(LifxFirmwareVersionMinor),
-				// highByte(LifxFirmwareVersionMinor),
-				// lowByte(LifxFirmwareVersionMajor),
-				// highByte(LifxFirmwareVersionMajor)
-				//0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14, // color 1000 build
-				//0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // color 1000 has no install timestamp
-				//0x3e, 0x00, 0x65, 0x00							// color 1000 Version 6619198
-			};
+				memcpy( response.data, wifiInfo, sizeof( wifiInfo ) );
+				response.data_size = sizeof( wifiInfo );
+				sendPacket( response, packet );
+			}
+			break;
 
-			memcpy(response.data, MeshVersionData, sizeof(MeshVersionData));
-			response.data_size = sizeof(MeshVersionData);
-			sendPacket(response, packet);
-		}
-		break;
+			case ECHO_REQUEST:
+			{
+				response.packet_type = ECHO_RESPONSE;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				memcpy( response.data, request.data, sizeof( request.data ) );
+				response.data_size = request.data_size;
+				sendPacket( response, packet );
+			}
+			break;
 
-		case GET_WIFI_FIRMWARE_STATE:
-		{
-			// respond to get command
-			response.packet_type = WIFI_FIRMWARE_STATE;
-			response.protocol = LifxProtocol_AllBulbsResponse;
-			response.res_ack = RES_NO_ACK;
-			// timestamp data comes from observed packet from a LIFX v1.5 bulb
-			byte WifiVersionData[] = {
-				// Original 1000 values
-				//0x00, 0xc8, 0x5e, 0x31, 0x99, 0x51, 0x86, 0x13, // Original 1000 (1) bulb build timestamp 1406901652000000000
-				//0xc0, 0x0c, 0x07, 0x00, 0x48, 0x46, 0xd9, 0x43, // Original 1000 (1) firmware reserved value 0x43d9464800070cc0
-				//0x05, 0x00, 0x01, 0x00							// Original 1000 (1) Version 65541
+			case PAN_GATEWAY:
+			case STATE_INFO:
+			case LOCATION_STATE:
+			case GROUP_STATE:
+			case LIGHT_STATUS:
+			case AUTH_STATE:
+			case VERSION_STATE:
+			case WIFI_FIRMWARE_STATE:
+			case MESH_FIRMWARE_STATE:
+			{
+				debug_println( "Ignoring bulb repsonse packet" );
+			}
+			break;
 
-				// Sometimes the Color 1000 spits out these values instead of the ones below ?!?!
-				//0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, //build timestamp 1502237570000000000
-				//0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, //dupe timestamp? 0x14d9051c58189400
-				//0x16, 0x00, 0x01, 0x00 // Version 65558
-
-				0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14, // color 1000 build 1456093684000000000
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // color 1000 has no install timestamp
-				0x3e, 0x00, 0x65, 0x00							// color 1000 Version 6619198
-
-				//lowByte(LifxFirmwareVersionMinor),
-				//highByte(LifxFirmwareVersionMinor),
-				//lowByte(LifxFirmwareVersionMajor),
-				//highByte(LifxFirmwareVersionMajor)
-
-			};
-
-			memcpy(response.data, WifiVersionData, sizeof(WifiVersionData));
-			response.data_size = sizeof(WifiVersionData);
-			sendPacket(response, packet);
-		}
-		break;
-
-		default:
-		{
-			debug_print(F("################### Unknown packet type: "));
-			debug_print(request.packet_type, HEX);
-			debug_print(F("/"));
-			debug_println(request.packet_type, DEC);
-		}
-		break;
+			default:
+			{
+				Serial.print(F("################### Unknown packet type: "));
+				Serial.print(request.packet_type, HEX);
+				Serial.print(F("/"));
+				Serial.println(request.packet_type, DEC);
+			}
+			break;
 		}
 
-		/*
 		// should we RES/ACK?
 		switch (request.res_ack)
 		{
-			case NO_RES_NO_ACK:
+			case NO_RESPONSE:
 			{
 				// nothing
+				debug_println( "No RES_ACK" );
 			}
 			break;
-			case RES_NO_ACK:
+
+			case RES_REQUIRED:
 			{
-				// Need to figure out if this matters
+				debug_println( "Response Requested" );
+				// Need to figure out if this matters, not set for standard app 'get' packets
 			}
 			break; 
-			case NO_RES_ACK:
+
+			// currently only supporting ack, hit on any with that bit set
+			case RES_ACK_PAN_REQUIRED:
+			case ACK_PAN_REQUIRED:
+			case RES_ACK_REQUIRED:
+			case ACK_REQUIRED:
 			{
-				break;
+				debug_println( "Acknowledgement Requested" );
 				// We are supposed to acknoledge the packet
 				response.packet_type = ACKNOWLEDGEMENT;
-				response.res_ack = NO_RES_NO_ACK;
+				response.res_ack = NO_RESPONSE;
 				response.protocol = LifxProtocol_AllBulbsResponse;
-				response.data = 0;
+				memset( response.data, 0, sizeof( response.data ) );
 				response.data_size = 0;
 				sendPacket(response, packet);
-
 			}
 			break; 
+
+			case PAN_REQUIRED:
+			{
+				// what
+			}
+			break;
+
+			case RES_PAN_REQUIRED:
+			{
+				// not even sure yet
+			}
+			break;
 
 			default:
 			{ 
+				debug_print( "Unknown RES_ACK" );
+				debug_println( request.res_ack, HEX );
 				// unknown packet type
 			}
-
 		}
-		*/
 	}
 
 	unsigned int sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi)
@@ -992,6 +1029,8 @@ private:
 			_message[_packetLength++] = (lowByte(pkt.data[i]));
 		}
 
+		tx_bytes += _packetLength;
+
 		// async packets get a free reply without specifying target
 		Udpi.write(_message, _packetLength);
 
@@ -1006,16 +1045,14 @@ private:
 
 		for (int j = 0; j < _packetLength; j++)
 		{
-			if (_message[j] <= 0x0F)
+			if (_message[j] <= 0x0F) // pad with zeros for proper alignment
 			{
-				debug_print(F("0"));
-			} // pad with zeros for proper alignment
+				debug_print(F("0")); 
+			} 
 			debug_print(_message[j], HEX);
 			debug_print(SPACE);
 		}
-		//printLifxPacket(pkt, _packetLength);
 		debug_println();
-		//Serial.println(F("."));
 		return _packetLength;
 	}
 
@@ -1087,16 +1124,16 @@ private:
 		}
 		else
 		{ // shit be off, yo
-			auto call = color_led->turn_off();
-			call.set_brightness(0);
-			call.set_transition_length(dur);
-			call.perform();
+			auto callC = color_led->turn_off();
+			callC.set_brightness(0);
+			callC.set_transition_length(dur);
+			callC.perform();
 
-			auto call2 = white_led->turn_off();
-			call2.set_brightness(0);
+			auto callW = white_led->turn_off();
+			callW.set_brightness(0);
 			// fade to black
-			call2.set_transition_length(dur);
-			call2.perform();
+			callW.set_transition_length(dur);
+			callW.perform();
 		}
 		lastChange = millis(); // throttle transitions based on last change
 	}
@@ -1112,10 +1149,11 @@ private:
 		for (byte charIndex = 0; charIndex < strlen(hexString); charIndex++)
 		{
 			bool oddCharIndex = (charIndex - removed) & 1;
-			if( hexString[charIndex] == '-' ) { 
+			if (hexString[charIndex] == '-')
+			{
 				//oddLength = !oddLength; // This didn't work.... not sure what happened if we deduct odd number of dashes however
 				removed++;
-				continue; 
+				continue;
 			}
 
 			if (oddLength)
