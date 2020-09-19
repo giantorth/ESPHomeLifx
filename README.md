@@ -14,6 +14,10 @@ If you add this component it should be the last item in the YAML or it might cau
 
 ## Release Notes
 
+### 0.2.1
+
+- Immediate wifi status reported in app and no longer 'goes dark' intermittently after viewing bulb info
+
 ### 0.2
 
 - Still working on app stability issues with inital detection (more wireshark)
@@ -78,6 +82,8 @@ If you add this component it should be the last item in the YAML or it might cau
 
 ## Debugging
 
+- To enable, #DEFINE DEBUG in source file (off by default for performance)
+  - Will still show packet rate in msec via serial when disabled
 - Serial console will output all in/out packet contents in HEX
 - Pull apart packets with Wireshark <https://github.com/mab5vot9us9a/WiresharkLIFXDissector>
 
