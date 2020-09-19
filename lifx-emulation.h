@@ -36,6 +36,7 @@ struct LifxPacket
 	int data_size;
 };
 
+//need to verify these 
 const unsigned int LifxProtocol_AllBulbsResponse = 21504; // 0x5400
 const unsigned int LifxProtocol_AllBulbsRequest = 13312;  // 0x3400
 const unsigned int LifxProtocol_BulbCommand = 5120;		  // 0x1400
@@ -143,10 +144,11 @@ const byte GET_INFARED_STATE = 0x78;	 // getInfared(120)
 const byte STATE_INFARED_STATE = 0x79;	 // stateInfared(121)
 const byte SET_INFARED_STATE = 0x7A;	 // setInfrared(122)
 
-// unknown packets during bulb reset 
+// Get/State happens during bulb info screens, Set happens during reset
+// Doesn't cause app to report cloud on but no more dropouts 
 const byte GET_CLOUD_STATE = 0xc9; // getCloud(201) - guessing
-const byte CA_PACKET = 0xca; // setCloudState? (202) 25 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1D 00 00 00 00 00 00 00 00 CA 00 00 00 00 
-const byte SET_CLOUD_STATE = 0xcb; // stateCloud(203) - guessing
+const byte SET_CLOUD_STATE = 0xca; // setCloudState? (202) 25 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1D 00 00 00 00 00 00 00 00 CA 00 00 00 00 
+const byte CLOUD_STATE = 0xcb; // stateCloud(203) - guessing
 
 const byte CD_PACKET = 0xcd; // (205) 44 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1C 00 00 00 00 00 00 00 00 CD 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
 const byte D1_PACKET = 0xd1; // (209) 45 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1B 00 00 00 00 00 00 00 00 D1 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
@@ -270,6 +272,7 @@ private:
 	00	00	00	00	00	00	00	00	00	00	00	00	00	00	00	00
 	00	00	00	00	00	5E	2C	B2	27	FA	35	16
 	*/
+
 	// Should probably check if wifi is up first before doing this
 	AsyncUDP Udp;
 
@@ -825,8 +828,7 @@ private:
 				// TODO
 				response.packet_type = WIFI_INFO;
 				response.protocol = LifxProtocol_AllBulbsResponse;
-				float rssi = pow( 10, ( WiFi.RSSI() / 10 ) );
-				// Just a guess val = math.floor(10 * math.log10(signal) + 0.5)
+				float rssi = pow( 10, ( WiFi.RSSI() / 10 ) );  // reverse of math.floor(10 * math.log10(signal) + 0.5)
 				debug_print( "RSSI: ");
 				debug_println( rssi, DEC );
 
@@ -848,12 +850,24 @@ private:
 					rx_p[1],
 					rx_p[2],
 					rx_p[3],
-					0x00,
+					0x00, // real bulbs seem to spit mystery values out here
 					0x00					
 				}; 
-
 				memcpy( response.data, wifiInfo, sizeof( wifiInfo ) );
 				response.data_size = sizeof( wifiInfo );
+				sendPacket( response, packet );
+			}
+			break;
+
+			// This name is wrong?
+			case GET_CLOUD_STATE:
+			{
+				response.res_ack = RES_REQUIRED; // matching real bulb
+				response.packet_type = CLOUD_STATE;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				byte cloudStatus[] = { 0x01 };  // still unsure what this value means
+				memcpy( response.data, cloudStatus, sizeof( cloudStatus ) );
+				response.data_size = sizeof( cloudStatus );
 				sendPacket( response, packet );
 			}
 			break;
@@ -878,6 +892,7 @@ private:
 			case WIFI_FIRMWARE_STATE:
 			case MESH_FIRMWARE_STATE:
 			{
+				// TODO: allow bulbs to request location from other bulbs on startup?
 				debug_println( "Ignoring bulb repsonse packet" );
 			}
 			break;
@@ -929,12 +944,14 @@ private:
 			case PAN_REQUIRED:
 			{
 				// what
+				debug_println( "PAN Response Requred?" );
 			}
 			break;
 
 			case RES_PAN_REQUIRED:
 			{
 				// not even sure yet
+				debug_println( "RES & PAN Response Requred?" );
 			}
 			break;
 
@@ -1062,7 +1079,7 @@ private:
 	{
 		int maxColor = 255;
 		int loopDuration = 0;
-		double loopRate = millis() - lastChange; // This value will cycle in 49 days from boot up, do we care?
+		unsigned long loopRate = millis() - lastChange; // This value will cycle in 49 days from boot up, do we care?
 		debug_print(F("Packet rate:"));
 		debug_print(loopRate);
 		debug_println(F("msec"));
