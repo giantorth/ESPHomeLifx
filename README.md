@@ -6,7 +6,7 @@ My #1 motivation in creating this was so I could host a giant light show using L
 
 The other motivation for this project is Esphome integration with Home Assistant is somewhat clunky and requires integration with each device.  Bulbs running this protocol will all be detected automatically by the Lifx integration and do not need to be configured indiviually.
 
-This firmware is otherwise stable (thanks Esphome!) and I have had bulbs running for nearly a year without issue.
+This firmware is otherwise stable (thanks Esphome!) and I have had 20+ bulbs running for nearly a year without issue.
 
 ## !!! Warning
 
@@ -16,8 +16,9 @@ If you add this component it should be the last item in the YAML or it might cau
 
 ### 0.2
 
+- Still working on app stability issues with inital detection (more wireshark)
 - Acknowledge all packets when requested properly
-- Start of wifi signal response, still trying to match real bulb responses
+- Able to provide WiFi signal status to app
 - Code cleanup, more packet types added for future support
 
 ### 0.1
@@ -25,7 +26,7 @@ If you add this component it should be the last item in the YAML or it might cau
 - Custom component has changed and now supports setting Location/Group values
   - Use wireshark to sniff real values from other bulbs if you want to match their values
 - Supports (runtime only) updates to Location/Group/Name
-  - Resets to compile time config on reboot, MQTT is next
+  - Resets to compile time config on reboot, MQTT is coming
 
 ## Instructions
 
@@ -38,14 +39,14 @@ If you add this component it should be the last item in the YAML or it might cau
 ## Supported Applications
 
 - Official Lifx Windows/iOS app control (Android not tested)
-  - Bulbs may not appear instantly when loading the mobile app
+  - Bulbs may not appear instantly when loading the mobile app (seems intermittent)
 - LightDJ (<https://lightdjapp.com/>)
   - High speed music-reactive light shows for up to 128 lights (Philips Hue can only do 10 bulbs in entertainment mode!)
   - Party-tested with 35+ lights running for hours without issue
 - HomeAssistant (<https://www.home-assistant.io/>)
   - Detected automatically with Lifx integration
 - Logitech Harmony Remote
-  - Automatically detects bulbs for use in activities (Turn on bias lighting in sync with your tv)
+  - Automatically detects bulbs for use in activities (Turn on bias lighting with your tv)
 - Compatability should be good enough for 3rd party applications
 
 ## Working/Implemented
@@ -68,10 +69,8 @@ If you add this component it should be the last item in the YAML or it might cau
 - No Lifx Cloud support
   - Required for Alexa/Google Home integration.  Use Home Assisistant or DiyHue instead?  
 - Hardcoded Location/Group values ("My Home" and "Basement" respectively at this time)
-  - Can't change bulb values with app - considering MQTT for configuration storage to avoid esp8266 flash limitations
 - Code is a mess, need to figure out how to include additional cpp/h files in esphome custom components to refactor
-- Doesn't understand packets coming from other offical bulbs yet (They seem to broadcast certain responses)
-  - Currently not checking MAC target for correct hit or broadcast either
+- Ignores packets coming from other offical bulbs yet (They seem to broadcast certain responses)
 - Real bulb MAC addresses all start with D0:73:D5, haven't tried mirroring this to see if behavior changes
 - Waveform bulb effects are not supported yet <https://lan.developer.lifx.com/docs/waveforms>
 - Setting/Restoring state on boot not working properly yet

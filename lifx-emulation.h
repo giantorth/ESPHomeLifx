@@ -1,7 +1,7 @@
 #include "esphome.h"
 #include <ESPAsyncUDP.h>
 
-#define DEBUG
+#define DEBUG2
 
 #ifdef DEBUG
 #define debug_print(x, ...) Serial.print(x, ##__VA_ARGS__)
