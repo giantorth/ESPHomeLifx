@@ -12,7 +12,15 @@ This firmware is otherwise stable (thanks Esphome!) and I have had bulbs running
 
 If you add this component it should be the last item in the YAML or it might cause the ESP to crash if wifi has not yet been initalized.
 
-## Changes in this release
+## Release Notes
+
+### 0.2
+
+- Acknowledge all packets when requested properly
+- Start of wifi signal response, still trying to match real bulb responses
+- Code cleanup, more packet types added for future support
+
+### 0.1
 
 - Custom component has changed and now supports setting Location/Group values
   - Use wireshark to sniff real values from other bulbs if you want to match their values
