@@ -13,7 +13,7 @@
 #define debug_println(x, ...)
 #endif
 
-// this structure doesn't support the response/ack packets properly and needs updated.
+// this structure doesn't support the response/ack byte properly and needs updated.
 struct LifxPacket
 {
 	////frame
@@ -161,7 +161,6 @@ const byte GET_CLOUD_BROKER = 0xd1;	  // (209) 45 00 00 14 10 00 7A D8 4C 11 AE 
 const byte SET_CLOUD_BROKER = 0xd2;	  // (210) 24 00 00 14 10 00 E5 15 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 05 1C 00 00 00 00 00 00 00 00 D2 00 00 00
 const byte CLOUD_BROKER_STATE = 0xd3; // (211) 32-bytes of zero response for no cloud bulb, 33 bytes for cloud bulbs "v2.broker.lifx.co"
 
-// helpers
 #define SPACE " "
 
 #ifdef MQTT_ON
@@ -248,7 +247,6 @@ public:
 			HueUdp.onPacket([&](AsyncUDPPacket &packet) { entertainment(packet); });
 		}
 #endif
-
 	}
 
 	void on_mqtt_message(const String &payload)
@@ -520,6 +518,38 @@ private:
 				  (uint32_t)request.data[12] << 24;
 
 			setLight();
+			if ( request.res_ack == RES_REQUIRED )  // per spec... TODO:  don't just copy-and-paste from other packet case
+			{
+				response.res_ack = NO_RESPONSE;
+				// send the light's state
+				response.packet_type = LIGHT_STATUS;
+				response.protocol = LifxProtocol_AllBulbsResponse;
+				byte StateData[52] = {
+					lowByte(hue),			//hue
+					highByte(hue),			//hue
+					lowByte(sat),			//sat
+					highByte(sat),			//sat
+					lowByte(bri),			//bri
+					highByte(bri),			//bri
+					lowByte(kel),			//kel
+					highByte(kel),			//kel
+					lowByte(dim),			// listed as reserved in protocol
+					highByte(dim),			// listed as reserved in protocol
+					lowByte(power_status),	//power status
+					highByte(power_status), //power status
+				};
+				for (int i = 0; i < sizeof(bulbLabel); i++)
+				{
+					StateData[i + 12] = bulbLabel[i];
+				}
+				for (int j = 0; j < sizeof(bulbTags); j++)
+				{
+					StateData[j + 12 + 32] = bulbTags[j];
+				}
+				memcpy(response.data, StateData, sizeof(StateData));
+				response.data_size = sizeof(StateData);
+				sendPacket(response, packet);
+			}
 		}
 		break;
 
