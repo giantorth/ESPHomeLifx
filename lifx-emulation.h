@@ -1,8 +1,9 @@
 #include "esphome.h"
 #include <ESPAsyncUDP.h>
 
-#define DEBUG2
-#define MQTT_OFF
+//#define DEBUG
+//#define MQTT
+//#define DIYHUE
 
 #ifdef DEBUG
 #define debug_print(x, ...) Serial.print(x, ##__VA_ARGS__)
@@ -152,12 +153,12 @@ const byte GET_CLOUD_STATE = 0xc9; // getCloud(201) - guessing
 const byte SET_CLOUD_STATE = 0xca; // setCloudState? (202) 25 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1D 00 00 00 00 00 00 00 00 CA 00 00 00 00
 const byte CLOUD_STATE = 0xcb;	   // stateCloud(203) - guessing
 
-const byte GET_CLOUD_AUTH = 0xcc; // (204) 24 00 00 14 10 00 2F 7C 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 05 31 00 00 00 00 00 00 00 00 CC 00 00 00
-const byte SET_CLOUD_AUTH = 0xcd; // (205) 44 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1C 00 00 00 00 00 00 00 00 CD 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+const byte GET_CLOUD_AUTH = 0xcc;	// (204) 24 00 00 14 10 00 2F 7C 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 05 31 00 00 00 00 00 00 00 00 CC 00 00 00
+const byte SET_CLOUD_AUTH = 0xcd;	// (205) 44 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1C 00 00 00 00 00 00 00 00 CD 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 const byte CLOUD_AUTH_STATE = 0xce; // (206) 66 68 7a ad f8 62 bd 77 6c 8f c1 8b 8e 9f 8e 20 08 97 14 85 6e e2 33 b3 90 2a 59 1d 0d 5f 29 25  << real bulb response payload, app only requests once so difficult to capture.  Suspect some crypto challenge?
 
-const byte GET_CLOUD_BROKER = 0xd1; // (209) 45 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1B 00 00 00 00 00 00 00 00 D1 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-const byte SET_CLOUD_BROKER = 0xd2; // (210) 24 00 00 14 10 00 E5 15 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 05 1C 00 00 00 00 00 00 00 00 D2 00 00 00
+const byte GET_CLOUD_BROKER = 0xd1;	  // (209) 45 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1B 00 00 00 00 00 00 00 00 D1 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+const byte SET_CLOUD_BROKER = 0xd2;	  // (210) 24 00 00 14 10 00 E5 15 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 05 1C 00 00 00 00 00 00 00 00 D2 00 00 00
 const byte CLOUD_BROKER_STATE = 0xd3; // (211) 32-bytes of zero response for no cloud bulb, 33 bytes for cloud bulbs "v2.broker.lifx.co"
 
 // helpers
@@ -239,6 +240,15 @@ public:
 		//TcpServer.begin();
 
 		setLight(); // will (not) turn light on at boot.... why?
+
+#ifdef DIYHUE
+		if (HueUdp.listen(2100))
+		{
+			ESP_LOGD("DiyHueUDP", "Listerner Enabled");
+			HueUdp.onPacket([&](AsyncUDPPacket &packet) { entertainment(packet); });
+		}
+#endif
+
 	}
 
 	void on_mqtt_message(const String &payload)
@@ -254,7 +264,18 @@ public:
 
 	void loop() override
 	{
+#ifdef DIYHUE
 		//TODO: Need to add bulb state watching here if things are changed outside this protocol
+		if (entertainment_switch->state)
+		{
+			if ((millis() - lastUDPmilsec) >= entertainmentTimeout)
+			{
+				{
+					entertainment_switch->turn_off();
+				}
+			}
+		}
+#endif
 	}
 
 private:
@@ -280,6 +301,9 @@ private:
 	unsigned long lastChange = millis();
 	uint32_t tx_bytes = 0;
 	uint32_t rx_bytes = 0;
+
+	unsigned long lastUDPmilsec = 0;
+	unsigned int entertainmentTimeout = 1500;
 
 	byte site_mac[6] = {0x4C, 0x49, 0x46, 0x58, 0x56, 0x32}; // spells out "LIFXV2" - version 2 of the app changes the site address to this...?
 
@@ -308,6 +332,41 @@ private:
 
 	// Should probably check if wifi is up first before doing this
 	AsyncUDP Udp;
+
+#ifdef DIYHUE
+	AsyncUDP HueUdp;
+
+	// this is a DiyHue entertainment call
+	void entertainment(AsyncUDPPacket &packet)
+	{
+		ESP_LOGD("DiyHueUDP", "Entertainment packet arrived");
+		auto call = white_led->turn_off(); //turn off white_led when entertainment starts
+		call.set_transition_length(0);
+		call.perform();
+		if (!entertainment_switch->state)
+		{
+			entertainment_switch->turn_on();
+		}
+		lastUDPmilsec = millis(); //reset timeout value
+		uint8_t *packetBuffer = packet.data();
+		uint32_t packetSize = packet.length();
+		call = color_led->turn_on();
+		if (((packetBuffer[1]) + (packetBuffer[2]) + (packetBuffer[3])) == 0)
+		{
+			call.set_rgb(0, 0, 0);
+			call.set_brightness(0);
+			call.set_transition_length(0);
+			call.perform();
+		}
+		else
+		{
+			call.set_rgb(packetBuffer[1] / maxColor, packetBuffer[2] / maxColor, packetBuffer[3] / maxColor);
+			call.set_transition_length(0);
+			call.set_brightness(packetBuffer[4] / maxColor);
+			call.perform();
+		}
+	}
+#endif
 
 	/******************************************************************************************************************
 	 * incomingUDP( AsyncUDPPacket )
@@ -918,7 +977,7 @@ private:
 			response.packet_type = CLOUD_BROKER_STATE;
 			response.protocol = LifxProtocol_AllBulbsResponse;
 			//byte cloud3Status[32] = {0x00}; // Real unclouded bulb returned all 0 here
-			byte cloud3Status[33] = { 0x76, 0x32, 0x2e, 0x62, 0x72, 0x6f, 0x6b, 0x65, 0x72, 0x2e, 0x6c, 0x69, 0x66, 0x78, 0x2e, 0x63, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+			byte cloud3Status[33] = {0x76, 0x32, 0x2e, 0x62, 0x72, 0x6f, 0x6b, 0x65, 0x72, 0x2e, 0x6c, 0x69, 0x66, 0x78, 0x2e, 0x63, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 			memcpy(response.data, cloud3Status, sizeof(cloud3Status));
 			response.data_size = sizeof(cloud3Status);
 			sendPacket(response, packet);
@@ -1171,7 +1230,7 @@ private:
 				callW.set_brightness(bright);
 
 				// this is an attempt to deal with the brightness wheel in the app spamming changes with a duration > packet rate
-				if (dur < lastChange)
+				if (dur > lastChange)
 				{
 					callW.set_transition_length(0);
 				}
@@ -1404,12 +1463,5 @@ private:
 		color[0] = (uint8_t)r_temp;
 		color[1] = (uint8_t)g_temp;
 		color[2] = (uint8_t)b_temp;
-	}
-
-	uint64_t swap_uint64(uint64_t val)
-	{
-		val = ((val << 8) & 0xFF00FF00FF00FF00U) | ((val >> 8) & 0x00FF00FF00FF00FFU);
-		val = ((val << 16) & 0xFFFF0000FFFF0000U) | ((val >> 16) & 0x0000FFFF0000FFFFU);
-		return (val << 32) | (val >> 32);
 	}
 };

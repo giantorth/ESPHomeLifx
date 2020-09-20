@@ -19,7 +19,7 @@ If you add this component it should be the last item in the YAML or it might cau
 ### 0.3
 
 - Responses now close enough to real bulbs that packet patterns are virtually identical
-  - This build is worthy of getting flashed to my entire fleet of bulbs
+- Includes optional DiyHue entertainment socket support, must #define DIYHUE in .h file to enable
 
 ### 0.2.1
 
