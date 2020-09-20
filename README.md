@@ -4,7 +4,7 @@ Port of Lifx LAN <https://lan.developer.lifx.com/docs/introduction> UDP protocol
 
 My #1 motivation in creating this was so I could host a giant light show using Light DJ (<https://lightdjapp.com/>).  
 
-LifxLAN protocol is __**fast**__ and processes packets in 1-2ms  Make your Tuya/esp8266 lights realtime-responsive with this protocol.
+LifxLAN protocol is __**fast**__ and processes packets in 1-2ms. Make your Tuya/esp8266 lights realtime-responsive with this protocol.
 
 The other motivation for this project is Esphome integration with Home Assistant is somewhat clunky and requires configuring each device.  Bulbs running this protocol will all be detected automatically by the Lifx integration and do not need to be configured individually.
 
@@ -95,4 +95,4 @@ If you add this component it should be the last item in the YAML or it might cau
 - Serial console will output all in/out packet contents in HEX
 - Pull apart packets with Wireshark <https://github.com/mab5vot9us9a/WiresharkLIFXDissector>
 
-Code used from <https://github.com/area3001/esp8266_lifx>
+Code used from <https://github.com/kayno/arduinolifx> and <https://github.com/area3001/esp8266_lifx>
