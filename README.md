@@ -2,9 +2,11 @@
 
 Port of Lifx LAN <https://lan.developer.lifx.com/docs/introduction> UDP protocol to <https://ESPHome.io> firmware.  
 
-My #1 motivation in creating this was so I could host a giant light show using Light DJ (<https://lightdjapp.com/>).  This app gives amazing light effects and supports up to 128 simultaneous bulbs using this protocol.  
+My #1 motivation in creating this was so I could host a giant light show using Light DJ (<https://lightdjapp.com/>).  
 
-The other motivation for this project is Esphome integration with Home Assistant is somewhat clunky and requires integration with each device.  Bulbs running this protocol will all be detected automatically by the Lifx integration and do not need to be configured indiviually.
+LifxLAN protocol is __**fast**__ and processes packets in 1-2ms  Make your Tuya/esp8266 lights realtime-responsive with this protocol.
+
+The other motivation for this project is Esphome integration with Home Assistant is somewhat clunky and requires configuring each device.  Bulbs running this protocol will all be detected automatically by the Lifx integration and do not need to be configured individually.
 
 This firmware is otherwise stable (thanks Esphome!) and I have had 20+ bulbs running for nearly a year without issue.
 
@@ -13,6 +15,11 @@ This firmware is otherwise stable (thanks Esphome!) and I have had 20+ bulbs run
 If you add this component it should be the last item in the YAML or it might cause the ESP to crash if wifi has not yet been initalized.
 
 ## Release Notes
+
+### 0.3
+
+- Responses now close enough to real bulbs that packet patterns are virtually identical
+  - This build is worthy of getting flashed to my entire fleet of bulbs
 
 ### 0.2.1
 
@@ -70,6 +77,7 @@ If you add this component it should be the last item in the YAML or it might cau
 - Takes a some time to detect bulbs with iOS app and appear in group
   - I have over 20 custom bulbs (and another ~15 real bulbs) running this firmware, untested at lower counts to see if detection time is linear
   - Software seems to cache official bulbs better, even ones not connected to cloud
+  - Dimmer wheel stacks up messages, need better handling of rapid-fire changes to dim value that include a duration > last packet time
 - No Lifx Cloud support
   - Required for Alexa/Google Home integration.  Use Home Assisistant or DiyHue instead?  
 - Hardcoded Location/Group values ("My Home" and "Basement" respectively at this time)
@@ -82,7 +90,7 @@ If you add this component it should be the last item in the YAML or it might cau
 
 ## Debugging
 
-- To enable, #DEFINE DEBUG in source file (off by default for performance)
+- To enable, #define DEBUG in source file (off by default for performance)
   - Will still show packet rate in msec via serial when disabled
 - Serial console will output all in/out packet contents in HEX
 - Pull apart packets with Wireshark <https://github.com/mab5vot9us9a/WiresharkLIFXDissector>
