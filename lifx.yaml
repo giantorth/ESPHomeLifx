@@ -101,13 +101,11 @@ custom_component:
 
   LifxLAN->set_bulbLocation( "Test Location" );
   LifxLAN->set_bulbLocationGUID( "4b833820-49b1-4f97-b324-316098f259d3" );
-  uint64_t locT = 1600358586632000000;  // epoch in msec * 1,000,000
-  LifxLAN->set_bulbLocationTime( locT );
+  LifxLAN->bulbLocationTime = 1600358586632000000;  // epoch in msec * 1,000,000
 
   LifxLAN->set_bulbGroup( "Test Group" );
   LifxLAN->set_bulbGroupGUID( "455820e8-3323-49f3-a7d0-598ba8092563" );
-  uint64_t grpT = 1600358586632000000; // epoch in msec * 1,000,000
-  LifxLAN->set_bulbGroupTime( grpT );
+  LifxLAN->bulbGroupTime = 1600358586632000000; // epoch in msec * 1,000,000
 
   LifxLAN->beginUDP();
   return {LifxLAN};
