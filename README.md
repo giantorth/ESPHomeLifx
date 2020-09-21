@@ -107,9 +107,10 @@ custom_component:
 
 ## Supported Applications
 
-- Official Lifx Windows/iOS app control (Android not tested)
-  - Bulbs may not appear instantly when loading the mobile app
-  - iOS app seems to detect faster on first launch vs re-opening running app (warm start only remembers cloud bulbs??)
+- Official Lifx Windows/iOS/Android app control
+  - Android app seems to work flawlessly
+  - iOS only: Bulbs may not appear instantly when loading the mobile app
+  - iOS only: app seems to detect faster on first launch vs re-opening running app (warm start only remembers cloud bulbs??)
 - LightDJ (<https://lightdjapp.com/>)
   - High speed music-reactive light shows for up to 128 lights (Philips Hue can only do 10 bulbs in entertainment mode!)
   - Party-tested with 35+ lights running for hours without issue
