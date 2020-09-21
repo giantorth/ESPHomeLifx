@@ -60,7 +60,7 @@ esphome:
   includes:
     - lifx-emulation.h
   libraries:
-    lib_deps: ESPAsyncUDP
+    - ESPAsyncUDP
 
 # Lifx emulation needs UTC time to respond to packets correctly.  
 time:
