@@ -5,8 +5,8 @@ esphome:
   # Required for LIFX LAN support
   includes:
     - lifx-emulation.h
-  platformio_options:
-    lib_deps: ESPAsyncUDP
+  libraries:
+    - ESPAsyncUDP
 
 # Lifx emulation needs UTC time to respond to packets correctly.  Code expects id: ha_time.
 time:
