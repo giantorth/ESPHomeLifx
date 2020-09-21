@@ -1,6 +1,6 @@
 # ESPHomeLifx
 
-Port of Lifx LAN <https://lan.developer.lifx.com/docs/introduction> UDP protocol to <https://ESPHome.io> firmware.  
+Port of Lifx LAN UDP protocol to <https://ESPHome.io> firmware.  
 
 My #1 motivation in creating this was so I could host a giant light show using Light DJ (<https://lightdjapp.com/>).  
 
@@ -47,10 +47,69 @@ If you add this component it should be the last item in the YAML or it might cau
   - Requires time component named 'ha_time'
 - Place lifx-emulation.h in your esphome folder (where all configs are located)
 
+Top of light config should have the correct includes and platformio_options.  
+A time component is also required for this stack as shown below.  
+It is highly suggested you lower the esphome logging for protocol performance.
+
+```yaml
+esphome:
+  name: lifxtest
+  platform: your_platform_here
+  board: your_board_here
+  # Required for LIFX LAN support
+  includes:
+    - lifx-emulation.h
+  platformio_options:
+    lib_deps: ESPAsyncUDP
+
+# Lifx emulation needs UTC time to respond to packets correctly.  
+time:
+  - platform: sntp
+    id: ha_time
+
+# Recommended esphome logger settings
+logger:
+  level: WARN
+  esp8266_store_log_strings_in_flash: False
+```
+
+Full config not shown: *see reference yaml in repo*
+
+The custom component allows definition of the Lifx Location and Group values.
+
+- The Location/Group string can be up to 32 characters long
+- GUIDs can be randomly generated if you are creating a new location/group for your bulbs <https://www.uuidgenerator.net/guid>
+- The timestamp is epoch in msec * 1,000,000 (how real bulbs store this value) <https://currentmillis.com/>
+  - If a location/group label is different between bulbs for the same GUID the application uses the highest time as the authoratative source
+  - Bulbs do not need to share this value and use current time when setting
+- Defaults for these values are in code if not set here
+
+```yaml
+# Required custom component for Lifx support
+custom_component:
+- lambda: |-
+  auto LifxLAN = new lifxUdp();
+  WiFi.macAddress(LifxLAN->mac);
+
+  LifxLAN->set_bulbLabel( App.get_name().c_str() );  
+
+  LifxLAN->set_bulbLocation( "Test Location" );
+  LifxLAN->set_bulbLocationGUID( "4b833820-49b1-4f97-b324-316098f259d3" );
+  LifxLAN->bulbLocationTime = 1600358586632000000;  // epoch in msec * 1,000,000
+
+  LifxLAN->set_bulbGroup( "Test Group" );
+  LifxLAN->set_bulbGroupGUID( "455820e8-3323-49f3-a7d0-598ba8092563" );
+  LifxLAN->bulbGroupTime = 1600358586632000000; // epoch in msec * 1,000,000
+
+  LifxLAN->beginUDP();
+  return {LifxLAN};
+```
+
 ## Supported Applications
 
 - Official Lifx Windows/iOS app control (Android not tested)
-  - Bulbs may not appear instantly when loading the mobile app (seems intermittent)
+  - Bulbs may not appear instantly when loading the mobile app
+  - iOS app seems to detect faster on first launch vs re-opening running app (warm start only remembers cloud bulbs??)
 - LightDJ (<https://lightdjapp.com/>)
   - High speed music-reactive light shows for up to 128 lights (Philips Hue can only do 10 bulbs in entertainment mode!)
   - Party-tested with 35+ lights running for hours without issue
@@ -70,7 +129,8 @@ If you add this component it should be the last item in the YAML or it might cau
   - ~20ms between changes with serial debugging on, ~2ms with serial debugging off
 - Responses should mostly be identical to real bulb
 - Appears in a Location/Group for supported applications
-- Bulb can still integrate with DiyHue esphome text sensor controls <https://github.com/diyhue/Lights/tree/master/ESPHome>
+- Bulb can still integrate with DiyHue esphome configuration <https://github.com/diyhue/Lights/tree/master/ESPHome>
+  - Optional DiyHue entertaininment UDP socket support included in this code for multi-mode bulbs
 
 ## Lots of work still todo
 
@@ -80,8 +140,7 @@ If you add this component it should be the last item in the YAML or it might cau
   - Dimmer wheel stacks up messages, need better handling of rapid-fire changes to dim value that include a duration > last packet time
 - No Lifx Cloud support
   - Required for Alexa/Google Home integration.  Use Home Assisistant or DiyHue instead?  
-- Hardcoded Location/Group values ("My Home" and "Basement" respectively at this time)
-- Code is a mess, need to figure out how to include additional cpp/h files in esphome custom components to refactor
+- Code is a single file, need to figure out how to include additional cpp/h files in esphome custom components to refactor
 - Ignores packets coming from other offical bulbs yet (They seem to broadcast certain responses)
 - Real bulb MAC addresses all start with D0:73:D5, haven't tried mirroring this to see if behavior changes
 - Waveform bulb effects are not supported yet <https://lan.developer.lifx.com/docs/waveforms>
@@ -94,5 +153,6 @@ If you add this component it should be the last item in the YAML or it might cau
   - Will still show packet rate in msec via serial when disabled
 - Serial console will output all in/out packet contents in HEX
 - Pull apart packets with Wireshark <https://github.com/mab5vot9us9a/WiresharkLIFXDissector>
+- Official protocol documentation <https://lan.developer.lifx.com/docs/introduction>
 
 Code used from <https://github.com/kayno/arduinolifx> and <https://github.com/area3001/esp8266_lifx>

@@ -8,16 +8,21 @@ esphome:
   platformio_options:
     lib_deps: ESPAsyncUDP
 
+# Lifx emulation needs UTC time to respond to packets correctly.  Code expects id: ha_time.
+time:
+  - platform: sntp
+    id: ha_time
+
+# Recommended esphome logger settings
+logger:
+  level: WARN
+  esp8266_store_log_strings_in_flash: False
+  
 wifi:
   networks:
   - ssid: "YOURINFORMATIONHERE"
     password: !secret wifi
   fast_connect: TRUE
-  
-# Enable logging
-logger:
-  level: WARN
-  esp8266_store_log_strings_in_flash: False
   
 # Enable Home Assistant API
 api:
@@ -86,18 +91,13 @@ light:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
 
-# Lifx emulation needs UTC time to respond to packets correctly.  Code expects id: ha_time.
-time:
-  - platform: sntp
-    id: ha_time
-
 # Required component for Lifx support
 custom_component:
 - lambda: |-
   auto LifxLAN = new lifxUdp();
+  WiFi.macAddress(LifxLAN->mac);
 
   LifxLAN->set_bulbLabel( App.get_name().c_str() );  
-  WiFi.macAddress(LifxLAN->mac);
 
   LifxLAN->set_bulbLocation( "Test Location" );
   LifxLAN->set_bulbLocationGUID( "4b833820-49b1-4f97-b324-316098f259d3" );
