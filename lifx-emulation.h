@@ -110,6 +110,8 @@ const byte VERSION_STATE = 0x21;	 // stateVersion(33)
 const byte GET_INFO = 0x22;	  // getInfo(34)
 const byte STATE_INFO = 0x23; // stateInfo(35)
 
+const byte RESET_BULB_ANDROID = 0x37; // Sent serval times on reset from android
+
 // no documented packets 0x24 thru 0x2c
 
 const byte ACKNOWLEDGEMENT = 0x2d; // acknowledgement(45)
@@ -124,9 +126,9 @@ const byte SET_GROUP_STATE = 0x34; // setGroup(52)
 const byte GROUP_STATE = 0x35;	   // stateGroup(53) - res_required
 
 // suspect these are FW checksum values
-const byte GET_AUTH_STATE = 0x36; // Mystery packets queried first by apps, need to add to wireshark plugin
-const byte SET_AUTH_STATE = 0x37; // Sent on bulb reset 5C 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1A 00 00 00 00 00 00 00 00 37 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 5E 2C B2 27 FA 35 16
-const byte AUTH_STATE = 0x38;	  // stateAuth(56) - sending a canned response
+const byte GET_AUTH_STATE = 0x36; // getAuth(54) Mystery packets queried first by apps, need to add to wireshark plugin
+const byte SET_AUTH_STATE = 0x37; // Sent on bulb cloud join (and reset?) 5C 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1A 00 00 00 00 00 00 00 00 37 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 5E 2C B2 27 FA 35 16
+const byte AUTH_STATE = 0x38;	  // stateAuth(56) - sending a canned response, should always respond from a SET
 
 const byte ECHO_REQUEST = 0x3a;	 // echoRequest(58)
 const byte ECHO_RESPONSE = 0x3b; // echoResponse(59)
@@ -143,15 +145,16 @@ const byte SET_POWER_STATE2 = 0x75; // setPower(117)
 const byte POWER_STATE2 = 0x76;		// statePower(118)
 
 const byte SET_WAVEFORM_OPTIONAL = 0x77; // setWaveformOptional(119)
+
 const byte GET_INFARED_STATE = 0x78;	 // getInfared(120)
 const byte STATE_INFARED_STATE = 0x79;	 // stateInfared(121)
 const byte SET_INFARED_STATE = 0x7A;	 // setInfrared(122)
 
 // Get/State happens during bulb info screens, Set happens during reset
 // Doesn't cause app to report cloud on but no more dropouts
-const byte GET_CLOUD_STATE = 0xc9; // getCloud(201) - guessing
-const byte SET_CLOUD_STATE = 0xca; // setCloudState? (202) 25 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1D 00 00 00 00 00 00 00 00 CA 00 00 00 00
-const byte CLOUD_STATE = 0xcb;	   // stateCloud(203) - guessing
+const byte GET_CLOUD_STATE = 0xc9; // getCloud(201) 
+const byte SET_CLOUD_STATE = 0xca; // setCloudState (202)
+const byte CLOUD_STATE = 0xcb;	   // stateCloud(203) 
 
 const byte GET_CLOUD_AUTH = 0xcc;	// (204) 24 00 00 14 10 00 2F 7C 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 05 31 00 00 00 00 00 00 00 00 CC 00 00 00
 const byte SET_CLOUD_AUTH = 0xcd;	// (205) 44 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1C 00 00 00 00 00 00 00 00 CD 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
@@ -183,6 +186,13 @@ public:
 	char bulbGroup[32] = "G";
 	char bulbGroupGUID[37] = "bd93e53d-2014-496f-8cfd-b8886f766d7a";
 	uint64_t bulbGroupTime = 1600213602318000000;
+
+	uint8_t cloudStatus = 0x01; 
+	byte cloudBrokerUrl[33] = {0x76, 0x32, 0x2e, 0x62, 0x72, 0x6f, 0x6b, 0x65, 0x72, 0x2e, 0x6c, 0x69, 0x66, 0x78, 0x2e, 0x63, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+	//byte cloudAuthResponse[32] = {0x66, 0x68, 0x7a, 0xad, 0xf8, 0x62, 0xbd, 0x77, 0x6c, 0x8f, 0xc1, 0x8b, 0x8e, 0x9f, 0x8e, 0x20, 0x08, 0x97, 0x14, 0x85, 0x6e, 0xe2, 0x33, 0xb3, 0x90, 0x2a, 0x59, 0x1d, 0x0d, 0x5f, 0x29, 0x25}; // Real unclouded bulb response
+	byte cloudAuthResponse[32] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // Test responses
+	//byte cloudAuthResponse[32] = {0x0D, 0x0E, 0x0A, 0x0D, 0x0B, 0x0E, 0x0E, 0x0F, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01}; // Test responses
+	//byte cloudAuthResponse[32] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}; // Will something break?
 
 	// need to change, strcpy will not erase prior string contents
 	void set_bulbLabel(const char *arg) { strcpy(bulbLabel, arg); }
@@ -791,8 +801,14 @@ private:
 		}
 		break;
 
+		case SET_AUTH_STATE:   // real bulbs always respond to a SET with a GET
 		case GET_AUTH_STATE:
 		{
+			if( request.packet_type == SET_AUTH_STATE ) {
+				for( int i = 0; i < request.data_size; i++ ) {
+					authResponse[i] = request.data[i];
+				}
+			}
 			response.packet_type = AUTH_STATE;
 			response.res_ack = RES_REQUIRED;
 			response.protocol = LifxProtocol_AllBulbsResponse;
@@ -972,44 +988,58 @@ private:
 		}
 		break;
 
+		case SET_CLOUD_STATE:
+		{
+			cloudStatus = response.data[0];  // lets do it
+			debug_print( "Cloud status changed to: ");
+			debug_println( cloudStatus, DEC );
+		}
+		break;
+
 		case GET_CLOUD_STATE:
 		{
 			response.res_ack = RES_REQUIRED; // matching real bulb
 			response.packet_type = CLOUD_STATE;
 			response.protocol = LifxProtocol_AllBulbsResponse;
-			byte cloudStatus[] = {0x01}; // still unsure what this value means, mostly 0x01, rare 0x0b.  0 causes app to send more unlisted packets.
-			memcpy(response.data, cloudStatus, sizeof(cloudStatus));
+			response.data[0] = cloudStatus;
 			response.data_size = sizeof(cloudStatus);
 			sendPacket(response, packet);
 		}
 		break;
 
+		case SET_CLOUD_AUTH:
 		case GET_CLOUD_AUTH:
 		{
+			if( request.packet_type == SET_CLOUD_AUTH ) {
+				for( int i = 0; i < request.data_size; i++ ) {
+					cloudAuthResponse[i] = request.data[i];
+				}
+			}
 			// suspect this is the crypto checksum response
 			// this repsonse is a unique 32bit number for each bulb that does not change
 			response.res_ack = RES_REQUIRED; // matching real bulb
 			response.packet_type = CLOUD_AUTH_STATE;
 			response.protocol = LifxProtocol_AllBulbsResponse;
-			//byte cloud2Status[32] = {0x66, 0x68, 0x7a, 0xad, 0xf8, 0x62, 0xbd, 0x77, 0x6c, 0x8f, 0xc1, 0x8b, 0x8e, 0x9f, 0x8e, 0x20, 0x08, 0x97, 0x14, 0x85, 0x6e, 0xe2, 0x33, 0xb3, 0x90, 0x2a, 0x59, 0x1d, 0x0d, 0x5f, 0x29, 0x25}; // Real unclouded bulb response
-			byte cloud2Status[32] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // Test responses
-			//byte cloud2Status[32] = {0x0D, 0x0E, 0x0A, 0x0D, 0x0B, 0x0E, 0x0E, 0x0F, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01}; // Test responses
-			//byte cloud2Status[32] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}; // Will something break?
-			memcpy(response.data, cloud2Status, sizeof(cloud2Status));
-			response.data_size = sizeof(cloud2Status);
+			memcpy(response.data, cloudAuthResponse, sizeof(cloudAuthResponse));
+			response.data_size = sizeof(cloudAuthResponse);
 			sendPacket(response, packet);
 		}
 		break;
 
+		case GET_CLOUD_BROKER:
 		case SET_CLOUD_BROKER:
 		{
+			if( request.packet_type == SET_CLOUD_BROKER ) {
+				for( int i = 0; i < request.data_size; i++ ) {
+					cloudBrokerUrl[i] = request.data[i];
+				}
+			}
 			response.res_ack = RES_REQUIRED; // matching real bulb
 			response.packet_type = CLOUD_BROKER_STATE;
 			response.protocol = LifxProtocol_AllBulbsResponse;
-			//byte cloud3Status[32] = {0x00}; // Real unclouded bulb returned all 0 here
-			byte cloud3Status[33] = {0x76, 0x32, 0x2e, 0x62, 0x72, 0x6f, 0x6b, 0x65, 0x72, 0x2e, 0x6c, 0x69, 0x66, 0x78, 0x2e, 0x63, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-			memcpy(response.data, cloud3Status, sizeof(cloud3Status));
-			response.data_size = sizeof(cloud3Status);
+			//byte cloudBrokerUrl[32] = {0x00}; // Real unclouded bulb returned all 0 here
+			memcpy(response.data, cloudBrokerUrl, sizeof(cloudBrokerUrl));
+			response.data_size = sizeof(cloudBrokerUrl);
 			sendPacket(response, packet);
 		}
 		break;
