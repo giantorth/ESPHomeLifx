@@ -12,9 +12,17 @@ This firmware is otherwise stable (thanks Esphome!) and I have had 20+ bulbs run
 
 ## !!! Warning
 
-If you add this component it should be the last item in the YAML or it might cause the ESP to crash if wifi has not yet been initalized.
+If you add this component it should be the last item in the YAML or it might cause the ESP to crash if wifi has not yet been initialized.
 
 ## Release Notes
+
+### 0.4
+
+- Now understands cloud status/provisioning/config packets that come from app  
+- Bulbs now appear to the app as ready to join cloud, and when "joined" the iOS app caches info about bulbs much better (no more disappearing and reappearing!)
+  - Bulbs do not talk to any cloud and only store provisioning data.  Buy real bulbs if you want a commercial cloud.
+  - Cloud provisioning status/data is lost on bulb reboot at this time
+- Fixed flaw in example yaml (platformio_options will break new compiles, now correct libraries directive
 
 ### 0.3
 
@@ -27,7 +35,7 @@ If you add this component it should be the last item in the YAML or it might cau
 
 ### 0.2
 
-- Still working on app stability issues with inital detection (more wireshark)
+- Still working on app stability issues with initial detection (more wireshark)
 - Acknowledge all packets when requested properly
 - Able to provide WiFi signal status to app
 - Code cleanup, more packet types added for future support
@@ -47,7 +55,7 @@ If you add this component it should be the last item in the YAML or it might cau
   - Requires time component named 'ha_time'
 - Place lifx-emulation.h in your esphome folder (where all configs are located)
 
-Top of light config should have the correct includes and platformio_options.  
+Top of light config should have the correct includes and libraries.  
 A time component is also required for this stack as shown below.  
 It is highly suggested you lower the esphome logging for protocol performance.
 
@@ -80,7 +88,7 @@ The custom component allows definition of the Lifx Location and Group values.
 - The Location/Group string can be up to 32 characters long
 - GUIDs can be randomly generated if you are creating a new location/group for your bulbs <https://www.uuidgenerator.net/guid>
 - The timestamp is epoch in msec * 1,000,000 (how real bulbs store this value) <https://currentmillis.com/>
-  - If a location/group label is different between bulbs for the same GUID the application uses the highest time as the authoratative source
+  - If a location/group label is different between bulbs for the same GUID the application uses the highest time as the authoritative source
   - Bulbs do not need to share this value and use current time when setting
 - Defaults for these values are in code if not set here
 
@@ -109,8 +117,9 @@ custom_component:
 
 - Official Lifx Windows/iOS/Android app control
   - Android app seems to work flawlessly
-  - iOS only: Bulbs may not appear instantly when loading the mobile app
-  - iOS only: app seems to detect faster on first launch vs re-opening running app (warm start only remembers cloud bulbs??)
+    - Android app has bug where it does not query device location/group values from bulb very often and uses cached values
+  - ~~iOS only: Bulbs may not appear instantly when loading the mobile app~~
+  - ~~iOS only: app seems to detect faster on first launch vs re-opening running app (warm start only remembers cloud bulbs??)~~
 - LightDJ (<https://lightdjapp.com/>)
   - High speed music-reactive light shows for up to 128 lights (Philips Hue can only do 10 bulbs in entertainment mode!)
   - Party-tested with 35+ lights running for hours without issue
@@ -125,27 +134,23 @@ custom_component:
 - Firmware reports itself as an up-to-date Color 1000 model bulb
   - Running on <https://www.costco.com/feit-electric-wi-fi-smart-bulbs%2c-4-pack.product.100417461.html>
   - Flashed with Tuya-convert <https://github.com/ct-Open-Source/tuya-convert>
-    - Warning newer firmware may not be OTA flashable (requires dissambly and soldering)
+    - Warning newer firmware may not be OTA flashable (requires disassembly and soldering)
 - Asynchronous UDP packet support for high-speed light show effects
   - ~20ms between changes with serial debugging on, ~2ms with serial debugging off
 - Responses should mostly be identical to real bulb
 - Appears in a Location/Group for supported applications
 - Bulb can still integrate with DiyHue esphome configuration <https://github.com/diyhue/Lights/tree/master/ESPHome>
-  - Optional DiyHue entertaininment UDP socket support included in this code for multi-mode bulbs
+  - Optional DiyHue entertainment UDP socket support included in this code for multi-mode bulbs (#define DIYHUE)
 
 ## Lots of work still todo
 
-- Takes a some time to detect bulbs with iOS app and appear in group
-  - I have over 20 custom bulbs (and another ~15 real bulbs) running this firmware, untested at lower counts to see if detection time is linear
-  - Software seems to cache official bulbs better, even ones not connected to cloud
-  - Dimmer wheel stacks up messages, need better handling of rapid-fire changes to dim value that include a duration > last packet time
-- No Lifx Cloud support
+- No real Lifx Cloud support (don't count on it either)
   - Required for Alexa/Google Home integration.  Use Home Assisistant or DiyHue instead?  
 - Code is a single file, need to figure out how to include additional cpp/h files in esphome custom components to refactor
 - Ignores packets coming from other offical bulbs yet (They seem to broadcast certain responses)
 - Real bulb MAC addresses all start with D0:73:D5, haven't tried mirroring this to see if behavior changes
 - Waveform bulb effects are not supported yet <https://lan.developer.lifx.com/docs/waveforms>
-- Setting/Restoring state on boot not working properly yet
+- Setting/Restoring state on boot not implemented yet
 - No proper support for single RGB or RGBWW device control (yet)
 
 ## Debugging
