@@ -22,7 +22,7 @@ If you add this component it should be the last item in the YAML or it might cau
 - Bulbs now appear to the app as ready to join cloud, and when "joined" the iOS app caches info about bulbs much better (no more disappearing and reappearing!)
   - Bulbs do not talk to any cloud and only store provisioning data.  Buy real bulbs if you want a commercial cloud.
   - Cloud provisioning status/data is lost on bulb reboot at this time
-- Fixed flaw in example yaml (platformio_options will break new compiles, now correct libraries directive
+- Fixed flaw in example yaml (platformio_options will break new compiles, now correct libraries directive)
 
 ### 0.3
 
