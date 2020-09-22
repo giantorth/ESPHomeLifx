@@ -16,6 +16,11 @@ If you add this component it should be the last item in the YAML or it might cau
 
 ## Release Notes
 
+### 0.4
+
+- Now understands cloud status/config packets that come from app.  Does not actually connect to cloud server however.
+- Fixed flaw in example yaml (platformio_options will break new compiles, now correct libraries directive)
+
 ### 0.3
 
 - Responses now close enough to real bulbs that packet patterns are virtually identical
@@ -109,6 +114,7 @@ custom_component:
 
 - Official Lifx Windows/iOS/Android app control
   - Android app seems to work flawlessly
+    - Android app has bug where it does not query device location/group values from bulb very often and uses cached values
   - iOS only: Bulbs may not appear instantly when loading the mobile app
   - iOS only: app seems to detect faster on first launch vs re-opening running app (warm start only remembers cloud bulbs??)
 - LightDJ (<https://lightdjapp.com/>)
@@ -139,7 +145,7 @@ custom_component:
   - I have over 20 custom bulbs (and another ~15 real bulbs) running this firmware, untested at lower counts to see if detection time is linear
   - Software seems to cache official bulbs better, even ones not connected to cloud
   - Dimmer wheel stacks up messages, need better handling of rapid-fire changes to dim value that include a duration > last packet time
-- No Lifx Cloud support
+- No Lifx Cloud support (don't count on it either)
   - Required for Alexa/Google Home integration.  Use Home Assisistant or DiyHue instead?  
 - Code is a single file, need to figure out how to include additional cpp/h files in esphome custom components to refactor
 - Ignores packets coming from other offical bulbs yet (They seem to broadcast certain responses)
