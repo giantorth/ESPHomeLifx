@@ -188,15 +188,15 @@ public:
 	uint64_t bulbGroupTime = 1600213602318000000;
 
 	uint8_t cloudStatus = 0x00;
-	//byte cloudBrokerUrl[33] = {0x76, 0x32, 0x2e, 0x62, 0x72, 0x6f, 0x6b, 0x65, 0x72, 0x2e, 0x6c, 0x69, 0x66, 0x78, 0x2e, 0x63, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-	byte cloudBrokerUrl[33] = {0x00}; // Test responses
-	byte cloudAuthResponse[32] = {0x00}; // Test responses
+	byte _cloudBrokerUrl[33] = {0x76, 0x32, 0x2e, 0x62, 0x72, 0x6f, 0x6b, 0x65, 0x72, 0x2e, 0x6c, 0x69, 0x66, 0x78, 0x2e, 0x63, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+	byte cloudBrokerUrl[33] = {0x00}; // Unclouded response
+	unsigned char cloudAuthResponse[32] = {0x00}; // Unclouded reponse 
 	// This is an undocumented packet payload I suspect is a firmware checksum, only checked by official apps
-	// byte authResponse[56] = {0xd1, 0x74, 0xef, 0x20, 0x68, 0x02, 0x4c, 0x3b, 0x94, 0xf7, 0x24, 0x71, 0x33, 0xc2, 0x98, 0x9a, // 16 mystery bytes
-	// 						 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	// 						 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	// 						 0x00, 0x39, 0x3b, 0x63, 0x31, 0x64, 0x5b, 0x15}; // 8 more mystery bytes
-	byte authResponse[56] = { 0x00 };
+	byte _authResponse[56] = {0xd1, 0x74, 0xef, 0x20, 0x68, 0x02, 0x4c, 0x3b, 0x94, 0xf7, 0x24, 0x71, 0x33, 0xc2, 0x98, 0x9a, // 16 mystery bytes
+	 						    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	 					   	    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	 						    0x00, 0x39, 0x3b, 0x63, 0x31, 0x64, 0x5b, 0x15}; // 8 more mystery bytes
+	byte authResponse[56] = {0x00};  // really another cloud config string
 
 	// need to change, strcpy will not erase prior string contents
 	void set_bulbLabel(const char *arg) { strcpy(bulbLabel, arg); }
@@ -236,7 +236,7 @@ public:
 		// start listening for packets
 		if (Udp.listen(LifxPort))
 		{
-			ESP_LOGD("LIFXUDP", "Listerner Enabled");
+			ESP_LOGW("LIFXUDP", "Lifx Emulation UDP listerner Enabled");
 			Udp.onPacket(
 				[&](AsyncUDPPacket &packet) {
 					unsigned long packetTime = millis();
@@ -245,8 +245,9 @@ public:
 					{ //ignore empty packets
 						incomingUDP(packet);
 					}
-					Serial.print(F("Total Packet handling time: "));
-					Serial.println(millis() - packetTime);
+					Serial.print(F("Response: "));
+					Serial.print(millis() - packetTime);
+					Serial.println("msec");
 				});
 		}
 		//TODO: TCP support necessary?
@@ -384,7 +385,7 @@ private:
 
 		ESP_LOGD("LIFXUDP", "Packet arrived");
 		debug_println();
-		debug_print(F("LIFX Packet Arrived ("));
+		debug_print(F("Packet Arrived ("));
 		IPAddress remote_addr(packet.remoteIP());
 		int remote_port = packet.remotePort();
 		debug_print(remote_addr);
@@ -456,7 +457,7 @@ private:
 
 	void handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	{
-		debug_print(F("Received packet type 0x"));
+		debug_print(F("-> Packet 0x"));
 		debug_print(request.packet_type, HEX);
 		debug_print(F(" ("));
 		debug_print(request.packet_type, DEC);
@@ -744,7 +745,7 @@ private:
 			// this needs constants
 			for (int i = 0; i < 16; i++)
 			{
-				bulbLocationGUIDb[i] = request.data[i];
+				bulbLocationGUIDb[guidSeq[i]] = request.data[i];  // app seems to send in scramble ordering
 			}
 			for (int j = 0; j < 32; j++)
 			{
@@ -818,7 +819,7 @@ private:
 			// this needs constants
 			for (int i = 0; i < 16; i++)
 			{
-				bulbGroupGUIDb[i] = request.data[i];
+				bulbGroupGUIDb[guidSeq[i]] = request.data[i];
 			}
 			for (int j = 0; j < 32; j++)
 			{
