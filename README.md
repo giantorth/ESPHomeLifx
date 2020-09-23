@@ -16,6 +16,10 @@ If you add this component it should be the last item in the YAML or it might cau
 
 ## Release Notes
 
+### 0.4.1
+
+- Fixed GUID ordering bug when app sets location or group and causes a duplicate area to appear.
+
 ### 0.4
 
 - Now understands cloud status/provisioning/config packets that come from app  
@@ -138,6 +142,7 @@ custom_component:
 - Asynchronous UDP packet support for high-speed light show effects
   - ~20ms between changes with serial debugging on, ~2ms with serial debugging off
 - Responses should mostly be identical to real bulb
+  - Now with cloud provioning packet support (mobile app to bulb only)
 - Appears in a Location/Group for supported applications
 - Bulb can still integrate with DiyHue esphome configuration <https://github.com/diyhue/Lights/tree/master/ESPHome>
   - Optional DiyHue entertainment UDP socket support included in this code for multi-mode bulbs (#define DIYHUE)
