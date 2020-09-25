@@ -16,13 +16,17 @@ If you add this component it should be the last item in the YAML or it might cau
 
 ## Release Notes
 
+### 0.5
+
+- Now with colorZone packet support required for MaxLifx-z
+
 ### 0.4.1
 
-- Fixed GUID ordering bug when app sets location or group and causes a duplicate area to appear.
+- Fixed GUID ordering bug when app sets location or group and causes a duplicate area to appear
 
 ### 0.4
 
-- Now understands cloud status/provisioning/config packets that come from app  
+- Now understands cloud status/provisioning/config packets that come from app
 - Bulbs now appear to the app as ready to join cloud, and when "joined" the iOS app caches info about bulbs much better (no more disappearing and reappearing!)
   - Bulbs do not talk to any cloud and only store provisioning data.  Buy real bulbs if you want a commercial cloud.
   - Cloud provisioning status/data is lost on bulb reboot at this time

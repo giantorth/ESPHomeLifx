@@ -128,7 +128,7 @@ const byte GROUP_STATE = 0x35;	   // stateGroup(53) - res_required
 // suspect these are FW checksum values
 const byte GET_AUTH_STATE = 0x36; // getAuth(54) Mystery packets queried first by apps, need to add to wireshark plugin
 const byte SET_AUTH_STATE = 0x37; // setAuth(55) Sent on bulb cloud join (and reset?) 5C 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1A 00 00 00 00 00 00 00 00 37 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 5E 2C B2 27 FA 35 16
-const byte AUTH_STATE = 0x38;	  // stateAuth(56) - sending a canned response, should always respond from a SET
+const byte AUTH_STATE = 0x38;	  // stateAuth(56) - should always respond from a SET
 
 const byte ECHO_REQUEST = 0x3a;	 // echoRequest(58)
 const byte ECHO_RESPONSE = 0x3b; // echoResponse(59)
@@ -158,11 +158,14 @@ const byte CLOUD_STATE = 0xcb;	   // stateCloud(203)
 
 const byte GET_CLOUD_AUTH = 0xcc;	// (204) 24 00 00 14 10 00 2F 7C 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 05 31 00 00 00 00 00 00 00 00 CC 00 00 00
 const byte SET_CLOUD_AUTH = 0xcd;	// (205) 44 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1C 00 00 00 00 00 00 00 00 CD 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-const byte CLOUD_AUTH_STATE = 0xce; // (206) 66 68 7a ad f8 62 bd 77 6c 8f c1 8b 8e 9f 8e 20 08 97 14 85 6e e2 33 b3 90 2a 59 1d 0d 5f 29 25  << real bulb response payload, app only requests once so difficult to capture.  Suspect some crypto challenge?
+const byte CLOUD_AUTH_STATE = 0xce; // (206) app only requests once so difficult to capture.  Suspect some kind of cloud-only serial number/guid?  App must set a unique value or it does not think bulb is cloud connected.
 
 const byte GET_CLOUD_BROKER = 0xd1;	  // (209) 45 00 00 14 10 00 7A D8 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 06 1B 00 00 00 00 00 00 00 00 D1 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 const byte SET_CLOUD_BROKER = 0xd2;	  // (210) 24 00 00 14 10 00 E5 15 4C 11 AE 0D 1E 5A 00 00 4C 49 46 58 56 32 05 1C 00 00 00 00 00 00 00 00 D2 00 00 00
 const byte CLOUD_BROKER_STATE = 0xd3; // (211) 32-bytes of zero response for no cloud bulb, 33 bytes for cloud bulbs "v2.broker.lifx.co"
+
+const uint16_t GET_COLOR_ZONE = 502; //{ 0xf6, 0x01 }; // getColorZones(502)
+const uint16_t STATE_COLOR_ZONE = 503; //{ 0xf7, 0x01 }; // stateColorZone(503)
 
 #define SPACE " "
 
@@ -386,11 +389,14 @@ private:
 		ESP_LOGD("LIFXUDP", "Packet arrived");
 		debug_println();
 		debug_print(F("Packet Arrived ("));
-		IPAddress remote_addr(packet.remoteIP());
+		IPAddress remote_addr = (packet.remoteIP());
+		IPAddress local_addr = packet.localIP();
 		int remote_port = packet.remotePort();
 		debug_print(remote_addr);
-		debug_print(F(":"));
+		debug_print(F(":")); 
 		debug_print(remote_port);
+		debug_print("->");
+		debug_print(local_addr);
 		debug_print(F(")("));
 
 		debug_print(packetSize);
@@ -636,6 +642,29 @@ private:
 			{
 				StateData[j + 12 + 32] = bulbTags[j];
 			}
+			memcpy(response.data, StateData, sizeof(StateData));
+			response.data_size = sizeof(StateData);
+			sendPacket(response, packet);
+		}
+		break;
+
+		// this is a light strip call.  Currently hardcoded for single bulb repsonse
+		case GET_COLOR_ZONE:
+		{
+			response.packet_type = STATE_COLOR_ZONE;
+			response.protocol = LifxProtocol_BulbCommand;
+			byte StateData[10] = {
+				0x01,					//count
+				0x00,					//index
+				lowByte(hue),			//hue
+				highByte(hue),			//hue
+				lowByte(sat),			//sat
+				highByte(sat),			//sat
+				lowByte(bri),			//bri
+				highByte(bri),			//bri
+				lowByte(kel),			//kel
+				highByte(kel),			//kel
+			};
 			memcpy(response.data, StateData, sizeof(StateData));
 			response.data_size = sizeof(StateData);
 			sendPacket(response, packet);
@@ -1062,6 +1091,8 @@ private:
 		case VERSION_STATE:
 		case WIFI_FIRMWARE_STATE:
 		case MESH_FIRMWARE_STATE:
+		case STATE_COLOR_ZONE:
+		case BULB_LABEL:
 		{
 			// TODO: allow bulbs to request location from other bulbs on startup?
 			debug_println("Ignoring bulb repsonse packet");
@@ -1220,11 +1251,16 @@ private:
 
 		tx_bytes += _packetLength;
 
-		// async packets get a free reply without specifying target
-		Udpi.write(_message, _packetLength);
+		IPAddress remote_addr = (Udpi.remoteIP());
+
+		// Lets reply to the remote IP of packet which may be different than direct IP (.255)
+		Udp.writeTo(_message, _packetLength, remote_addr, LifxPort );
+
+		// async packets get a free reply without specifying target (unicast to remote ip only)
+		//Udpi.write(_message, _packetLength);
 
 		// debugging output
-		debug_print(F("Sending Packet Type 0x"));
+		debug_print(F("Sent Packet Type 0x"));
 		debug_print(pkt.packet_type, HEX);
 		debug_print(F(" ("));
 		debug_print(pkt.packet_type, DEC);
