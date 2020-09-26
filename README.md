@@ -16,6 +16,10 @@ If you add this component it should be the last item in the YAML or it might cau
 
 ## Release Notes
 
+### 0.5.1
+
+- Change in packet response for MaxLifx support has broken Home Assistant integration, reverted to prior response behavior
+
 ### 0.5
 
 - Now with colorZone packet support required for MaxLifx-z
