@@ -1254,10 +1254,10 @@ private:
 		IPAddress remote_addr = (Udpi.remoteIP());
 
 		// Lets reply to the remote IP of packet which may be different than direct IP (.255)
-		Udp.writeTo(_message, _packetLength, remote_addr, LifxPort );
+		//Udp.writeTo(_message, _packetLength, remote_addr, LifxPort );
 
 		// async packets get a free reply without specifying target (unicast to remote ip only)
-		//Udpi.write(_message, _packetLength);
+		Udpi.write(_message, _packetLength);
 
 		// debugging output
 		debug_print(F("Sent Packet Type 0x"));
