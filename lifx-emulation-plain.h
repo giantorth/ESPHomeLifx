@@ -4,8 +4,6 @@
 //#define DEBUG
 //#define MQTT
 //#define DIYHUE
-#define RGBWW
-//#define CWWW_RGB
 
 #ifdef DEBUG
 #define debug_print(x, ...) Serial.print(x, ##__VA_ARGS__)
@@ -54,7 +52,7 @@ const unsigned int LifxBulbTagLabelsLength = 32;
 
 // firmware versions, etc
 const byte LifxBulbVendor = 1;
-const byte LifxBulbProduct = 22;
+const byte LifxBulbProduct = 51; //22 is color 1000, 51 is mini white
 const byte LifxBulbVersion = 0;
 const byte LifxFirmwareVersionMajor = 1;
 const byte LifxFirmwareVersionMinor = 5;
@@ -250,9 +248,9 @@ public:
 					{ //ignore empty packets
 						incomingUDP(packet);
 					}
-					debug_print(F("Response: "));
-					debug_print(millis() - packetTime);
-					debug_println("msec");
+					// Serial.print(F("Response: "));
+					// Serial.print(millis() - packetTime);
+					// Serial.println("msec");
 				});
 		}
 		//TODO: TCP support necessary?
@@ -933,10 +931,13 @@ private:
 			response.res_ack = RES_REQUIRED;
 			// timestamp data comes from observed packet from a LIFX v1.5 bulb
 			byte MeshVersionData[] = {
-				0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 build 1502237570000000000
-				0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 reserved 0x14d9051c58189400
-				0x16, 0x00, 0x01, 0x00							// color 1000 Version 65558
+				// 0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 build 1502237570000000000
+				// 0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14, // color 1000 reserved 0x14d9051c58189400
+				// 0x16, 0x00, 0x01, 0x00							// color 1000 Version 65558
 
+				0x00, 0x26, 0xa9, 0x6b, 0x7a, 0x2c, 0xdb, 0x15, 	// Mini white 1574901399000000000
+				0x00, 0x26, 0xa9, 0x6b, 0x7a, 0x2c, 0xdb, 0x15, 	// 0x15db2c7a6ba92600
+				0x3c, 0x00, 0x03, 0x00								// 196668
 				// lowByte(LifxFirmwareVersionMinor),
 				// highByte(LifxFirmwareVersionMinor),
 				// lowByte(LifxFirmwareVersionMajor),
@@ -962,10 +963,13 @@ private:
 				//0xc0, 0x0c, 0x07, 0x00, 0x48, 0x46, 0xd9, 0x43, // Original 1000 (1) firmware reserved value 0x43d9464800070cc0
 				//0x05, 0x00, 0x01, 0x00						 // Original 1000 (1) Version 65541
 
-				0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14, // color 1000 build 1456093684000000000
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // color 1000 has no install timestamp
-				0x3e, 0x00, 0x65, 0x00							// color 1000 Version 6619198
+				// 0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14, // color 1000 build 1456093684000000000
+				// 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // color 1000 has no install timestamp
+				// 0x3e, 0x00, 0x65, 0x00							// color 1000 Version 6619198
 
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Mini white values are empty
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+				0x00, 0x00, 0x00, 0x00
 				//lowByte(LifxFirmwareVersionMinor),
 				//highByte(LifxFirmwareVersionMinor),
 				//lowByte(LifxFirmwareVersionMajor),
@@ -1103,10 +1107,10 @@ private:
 
 		default:
 		{
-			debug_print(F("################### Unknown packet type: "));
-			debug_print(request.packet_type, HEX);
-			debug_print(F("/"));
-			debug_println(request.packet_type, DEC);
+			// Serial.print(F("################### Unknown packet type: "));
+			// Serial.print(request.packet_type, HEX);
+			// Serial.print(F("/"));
+			// Serial.println(request.packet_type, DEC);
 		}
 		break;
 		}
@@ -1290,7 +1294,6 @@ private:
 	{
 		int maxColor = 255;
 		int loopDuration = 0;
-		bool coolOff = false;
 		unsigned long loopRate = millis() - lastChange; // This value will cycle in 49 days from boot up, do we care?
 		debug_print(F("Packet rate:"));
 		debug_print(loopRate);
@@ -1316,94 +1319,65 @@ private:
 
 			// if we are setting a "white" colour (no saturation)
 			// this doesn't work with homekit bridge on home assistant
+			sat = 0;
 			if (sat < 1)
 			{
-				uint16_t mireds = 1000000 / kel; // Esphome requires mireds, protocol is kelvin
-#ifdef CWWW_RGB
 				//debug_println(F("White light enabled"));
-				auto callC = color_led->turn_off();
-				callC.perform();
+				// auto callC = color_led->turn_off();
+				// callC.perform();
 
-				auto callW = white_led->turn_on();
-				callW.set_color_temperature(mireds);
+				auto callW = dimmable_led->turn_on();
+				// uint16_t mireds = 1000000 / kel; // Esphome requires mireds, protocol is kelvin
+				// callW.set_color_temperature(mireds);
 				callW.set_brightness(bright);
 
 				// this is an attempt to deal with the brightness wheel in the app spamming changes with a duration > packet rate
-				if (0) //dur > lastChange )
+				if (dur > lastChange)
 				{
-					if( coolOff ) 
-						callW.set_transition_length(0);
-					else
-						coolOff = true;					
+					callW.set_transition_length_if_supported(0);
 				}
 				else
 				{
-					coolOff = false;
-					callW.set_transition_length(dur);
+					callW.set_transition_length_if_supported(dur);
 				}
 				callW.perform();
-#endif
-#ifdef RGBWW
-				auto callRGBWW = rgbww_led->turn_on();
-				callRGBWW.set_color_temperature(mireds);
-				callRGBWW.set_brightness(bright);
-				callRGBWW.set_transition_length(dur);
-				callRGBWW.set_rgb( 1,1,1 );
-				callRGBWW.perform();
-#endif
 			}
 			else
 			{
-				uint8_t rgbColor[3];
-				// Remap to smaller range.... should consider a better hsb2rgb that supports higher precision
-				int this_hue = map(hue, 0, 65535, 0, 767);
-				int this_sat = map(sat, 0, 65535, 0, 255);
-				int this_bri = map(bri, 0, 65535, 0, 255);
+				// uint8_t rgbColor[3];
+				// auto callW = white_led->turn_off();
+				// // auto callC = color_led->turn_on();
 
-				// todo: RGBW(W) math to decide mixing in white light approprately when lowering saturation
-				hsb2rgb(this_hue, this_sat, this_bri, rgbColor); // Remap color to RGB from protocol's HSB
-				float r = (float)rgbColor[0] / maxColor;
-				float g = (float)rgbColor[1] / maxColor;
-				float b = (float)rgbColor[2] / maxColor;
-#ifdef CWWW_RGB
-				auto callW = white_led->turn_off();
-				auto callC = color_led->turn_on();
+				// // Remap to smaller range.... should consider a better hsb2rgb that supports higher precision
+				// int this_hue = map(hue, 0, 65535, 0, 767);
+				// int this_sat = map(sat, 0, 65535, 0, 255);
+				// int this_bri = map(bri, 0, 65535, 0, 255);
 
-				callC.set_rgb(r, g, b);
-				callC.set_brightness(bright);
-				callC.set_transition_length(dur);
-				callW.perform();
-				callC.perform();
-#endif
-#ifdef RGBWW
-				auto callRGBWW = rgbww_led->turn_on();
-				callRGBWW.set_brightness(bright);
-				callRGBWW.set_transition_length(dur);
-				callRGBWW.set_rgb(r,g,b);
-				callRGBWW.perform();	
-#endif
+				// // todo: RGBW(W) math to decide mixing in white light approprately when lowering saturation
+				// hsb2rgb(this_hue, this_sat, this_bri, rgbColor); // Remap color to RGB from protocol's HSB
+				// float r = (float)rgbColor[0] / maxColor;
+				// float g = (float)rgbColor[1] / maxColor;
+				// float b = (float)rgbColor[2] / maxColor;
+
+				// callC.set_rgb(r, g, b);
+				// callC.set_brightness(bright);
+				// callC.set_transition_length(dur);
+				// callW.perform();
+				// callC.perform();
 			}
 		}
 		else
 		{ // shit be off, yo
-#ifdef CWWW_RGB
-			auto callC = color_led->turn_off();
-			callC.set_brightness(0);
-			callC.set_transition_length(dur);
-			callC.perform();
+			// auto callC = color_led->turn_off();
+			// callC.set_brightness(0);
+			// callC.set_transition_length(dur);
+			// callC.perform();
 
-			auto callW = white_led->turn_off();
+			auto callW = dimmable_led->turn_off();
 			callW.set_brightness(0);
 			// fade to black
-			callW.set_transition_length(dur);
+			callW.set_transition_length_if_supported(dur);
 			callW.perform();
-#endif
-#ifdef RGBWW
-			auto callRGBWW = rgbww_led->turn_off();
-			callRGBWW.set_brightness(0);
-			callRGBWW.set_transition_length(dur);
-			callRGBWW.perform();	
-#endif
 		}
 		lastChange = millis(); // throttle transitions based on last change
 	}
@@ -1461,19 +1435,19 @@ private:
 		}
 	}
 
-	void dumpByteArray(const byte *byteArray, const byte arraySize)
-	{
+	// void dumpByteArray(const byte *byteArray, const byte arraySize)
+	// {
 
-		for (int i = 0; i < arraySize; i++)
-		{
-			debug_print("0x");
-			if (byteArray[i] < 0x10)
-				debug_print("0");
-			debug_print(byteArray[i], HEX);
-			debug_print(", ");
-		}
-		debug_println();
-	}
+	// 	for (int i = 0; i < arraySize; i++)
+	// 	{
+	// 		Serial.print("0x");
+	// 		if (byteArray[i] < 0x10)
+	// 			Serial.print("0");
+	// 		Serial.print(byteArray[i], HEX);
+	// 		Serial.print(", ");
+	// 	}
+	// 	Serial.println();
+	// }
 
 	byte nibble(char c)
 	{
