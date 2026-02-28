@@ -21,6 +21,7 @@ CONF_BULB_GROUP = "bulb_group"
 CONF_BULB_GROUP_GUID = "bulb_group_guid"
 CONF_BULB_GROUP_TIME = "bulb_group_time"
 CONF_TIME_ID = "time_id"
+CONF_DEBUG = "debug"
 
 
 def _validate_light_config(config):
@@ -65,6 +66,7 @@ CONFIG_SCHEMA = cv.All(
                 default="bd93e53d-2014-496f-8cfd-b8886f766d7a",
             ): cv.string,
             cv.Optional(CONF_BULB_GROUP_TIME, default=1600213602318000000): cv.positive_int,
+            cv.Optional(CONF_DEBUG, default=False): cv.boolean,
         }
     ).extend(cv.COMPONENT_SCHEMA),
     _validate_light_config,
@@ -98,5 +100,7 @@ async def to_code(config):
     cg.add(var.set_bulb_group(config[CONF_BULB_GROUP]))
     cg.add(var.set_bulb_group_guid(config[CONF_BULB_GROUP_GUID]))
     cg.add(var.set_bulb_group_time(config[CONF_BULB_GROUP_TIME]))
+
+    cg.add(var.set_debug(config[CONF_DEBUG]))
 
     cg.add_library("ESPAsyncUDP", None)

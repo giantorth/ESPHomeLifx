@@ -45,7 +45,7 @@ If you add this component it should be the last item in the YAML or it might cau
 ### 0.3
 
 - Responses now close enough to real bulbs that packet patterns are virtually identical
-- Includes optional DiyHue entertainment socket support, must #define DIYHUE in .h file to enable
+- Improved packet response accuracy
 
 ### 0.2.1
 
@@ -192,13 +192,10 @@ logger:
   - Now with cloud provioning packet support (mobile app to bulb only)
 - Appears in a Location/Group for supported applications
 - Supports combined RGBWW lights or separate RGB + CWWW dual-light setups
-- Bulb can still integrate with DiyHue esphome configuration <https://github.com/diyhue/Lights/tree/master/ESPHome>
-  - Optional DiyHue entertainment UDP socket support included in this code for multi-mode bulbs (#define DIYHUE)
-
 ## Lots of work still todo
 
 - No real Lifx Cloud support (don't count on it either)
-  - Required for Alexa/Google Home integration.  Use Home Assisistant or DiyHue instead?
+  - Required for Alexa/Google Home integration.  Use Home Assistant instead?
 - Ignores packets coming from other offical bulbs yet (They seem to broadcast certain responses)
 - Real bulb MAC addresses all start with D0:73:D5, haven't tried mirroring this to see if behavior changes
 - Waveform bulb effects are not supported yet <https://lan.developer.lifx.com/docs/waveforms>

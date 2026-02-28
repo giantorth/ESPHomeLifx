@@ -15,9 +15,6 @@
 // Uncomment to enable verbose serial debug output
 //#define LIFX_DEBUG
 
-// Uncomment to enable DiyHue entertainment mode (requires additional YAML config)
-//#define DIYHUE
-
 #ifdef LIFX_DEBUG
 #define debug_print(x, ...) Serial.print(x, ##__VA_ARGS__)
 #define debug_println(x, ...) Serial.println(x, ##__VA_ARGS__)
@@ -25,6 +22,8 @@
 #define debug_print(x, ...)
 #define debug_println(x, ...)
 #endif
+
+static const char *const TAG = "lifx_emulation";
 
 // this structure doesn't support the response/ack byte properly and needs updated.
 struct LifxPacket
@@ -193,6 +192,8 @@ public:
 	void set_rgbww_led(light::LightState *light) { this->rgbww_led_ = light; }
 	void set_time(time::RealTimeClock *time_rtc) { this->ha_time_ = time_rtc; }
 
+	void set_debug(bool debug) { this->debug_ = debug; }
+
 	void set_bulb_label(const char *arg) { strncpy(bulbLabel, arg, sizeof(bulbLabel) - 1); }
 
 	void set_bulb_location(const char *arg) { strncpy(bulbLocation, arg, sizeof(bulbLocation) - 1); }
@@ -213,15 +214,6 @@ public:
 
 	void loop() override
 	{
-#ifdef DIYHUE
-		if (this->entertainment_switch_ != nullptr && this->entertainment_switch_->state)
-		{
-			if ((millis() - lastUDPmilsec) >= entertainmentTimeout)
-			{
-				this->entertainment_switch_->turn_off();
-			}
-		}
-#endif
 	}
 
 	// Run after WiFi is established so the UDP listener can bind successfully
@@ -249,15 +241,9 @@ private:
 	light::LightState *white_led_{nullptr};
 	light::LightState *rgbww_led_{nullptr};
 	time::RealTimeClock *ha_time_{nullptr};
+	bool debug_{false};
 
 	bool is_combined_mode() { return this->rgbww_led_ != nullptr; }
-
-#ifdef DIYHUE
-	// To use DIYHUE, add an entertainment_switch setter and wire it in __init__.py
-	// e.g.: cv.Optional("entertainment_switch"): cv.use_id(switch_.Switch)
-	esphome::switch_::Switch *entertainment_switch_{nullptr};
-	AsyncUDP HueUdp;
-#endif
 
 	float maxColor = 255;
 	// initial bulb values - warm white!
@@ -282,9 +268,6 @@ private:
 	uint32_t tx_bytes = 0;
 	uint32_t rx_bytes = 0;
 
-	unsigned long lastUDPmilsec = 0;
-	unsigned int entertainmentTimeout = 1500;
-
 	byte site_mac[6] = {0x4C, 0x49, 0x46, 0x58, 0x56, 0x32}; // spells out "LIFXV2"
 
 	// tags for this bulb, seemingly unused on current real bulbs
@@ -308,6 +291,7 @@ private:
 	{
 		debug_print(F("Setting Light Name: "));
 		debug_println(bulbLabel);
+		if (debug_) ESP_LOGD(TAG, "Setting Light Name: %s", bulbLabel);
 
 		// Convert incoming guid strings to byte arrays (strips dashes)
 		hexCharacterStringToBytes(bulbGroupGUIDb, (const char *)bulbGroupGUID);
@@ -315,6 +299,7 @@ private:
 
 		debug_print("Wifi Signal: ");
 		debug_println(WiFi.RSSI(), DEC);
+		if (debug_) ESP_LOGD(TAG, "Wifi Signal: %d", WiFi.RSSI());
 
 		// start listening for packets
 		if (Udp.listen(LifxPort))
@@ -328,75 +313,13 @@ private:
 					{ //ignore empty packets
 						incomingUDP(packet);
 					}
-					Serial.print(F("Response: "));
-					Serial.print(millis() - packetTime);
-					Serial.println("msec");
+					if (debug_) ESP_LOGD(TAG, "Response: %lu msec", millis() - packetTime);
 				});
 		}
 		//TODO: TCP support necessary?
 
 		setLight(); // sync initial light state
-
-#ifdef DIYHUE
-		if (HueUdp.listen(2100))
-		{
-			ESP_LOGD("DiyHueUDP", "Listener Enabled");
-			HueUdp.onPacket([&](AsyncUDPPacket &packet) { entertainment(packet); });
-		}
-#endif
 	}
-
-#ifdef DIYHUE
-	// this is a DiyHue entertainment call
-	void entertainment(AsyncUDPPacket &packet)
-	{
-		ESP_LOGD("DiyHueUDP", "Entertainment packet arrived");
-
-		if (this->entertainment_switch_ != nullptr && !this->entertainment_switch_->state)
-		{
-			this->entertainment_switch_->turn_on();
-		}
-		lastUDPmilsec = millis(); //reset timeout value
-		uint8_t *packetBuffer = packet.data();
-
-		if (is_combined_mode())
-		{
-			auto callC = this->rgbww_led_->turn_on();
-			if (((packetBuffer[1]) + (packetBuffer[2]) + (packetBuffer[3])) == 0)
-			{
-				callC.set_rgb(0, 0, 0);
-				callC.set_brightness(0);
-			}
-			else
-			{
-				callC.set_rgb(packetBuffer[1] / maxColor, packetBuffer[2] / maxColor, packetBuffer[3] / maxColor);
-				callC.set_brightness(packetBuffer[4] / maxColor);
-			}
-			callC.set_transition_length(0);
-			callC.perform();
-		}
-		else
-		{
-			auto call = this->white_led_->turn_off();
-			call.set_transition_length(0);
-			call.perform();
-
-			auto callC = this->color_led_->turn_on();
-			if (((packetBuffer[1]) + (packetBuffer[2]) + (packetBuffer[3])) == 0)
-			{
-				callC.set_rgb(0, 0, 0);
-				callC.set_brightness(0);
-			}
-			else
-			{
-				callC.set_rgb(packetBuffer[1] / maxColor, packetBuffer[2] / maxColor, packetBuffer[3] / maxColor);
-				callC.set_brightness(packetBuffer[4] / maxColor);
-			}
-			callC.set_transition_length(0);
-			callC.perform();
-		}
-	}
-#endif
 
 	/******************************************************************************************************************
 	 * incomingUDP( AsyncUDPPacket )
@@ -410,12 +333,14 @@ private:
 		uint8_t packetBuffer[packetSize];
 		memcpy(packetBuffer, packet.data(), packetSize);
 
-		ESP_LOGD("LIFXUDP", "Packet arrived");
 		debug_println();
 		debug_print(F("Packet Arrived ("));
 		IPAddress remote_addr = (packet.remoteIP());
 		IPAddress local_addr = packet.localIP();
 		int remote_port = packet.remotePort();
+		if (debug_) ESP_LOGD(TAG, "Packet Arrived (%s:%d->%s)(%d bytes)",
+			remote_addr.toString().c_str(), remote_port,
+			local_addr.toString().c_str(), packetSize);
 		debug_print(remote_addr);
 		debug_print(F(":"));
 		debug_print(remote_port);
@@ -485,6 +410,7 @@ private:
 		debug_print(F(" ("));
 		debug_print(request.packet_type, DEC);
 		debug_println(F(")"));
+		if (debug_) ESP_LOGD(TAG, "-> Packet 0x%02X (%d)", request.packet_type, request.packet_type);
 
 		LifxPacket response;
 		for (int x = 0; x < 4; x++)
@@ -1061,10 +987,7 @@ private:
 
 		default:
 		{
-			Serial.print(F("################### Unknown packet type: "));
-			Serial.print(request.packet_type, HEX);
-			Serial.print(F("/"));
-			Serial.println(request.packet_type, DEC);
+			ESP_LOGW(TAG, "Unknown packet type: 0x%02X/%d", request.packet_type, request.packet_type);
 		}
 		break;
 		}
@@ -1184,6 +1107,7 @@ private:
 
 		Udpi.write(_message, _packetLength);
 
+		if (debug_) ESP_LOGD(TAG, "Sent Packet Type 0x%02X (%d, %d bytes)", pkt.packet_type, pkt.packet_type, _packetLength);
 		debug_print(F("Sent Packet Type 0x"));
 		debug_print(pkt.packet_type, HEX);
 		debug_print(F(" ("));
@@ -1226,6 +1150,8 @@ private:
 		debug_print(dur);
 		debug_print(F(", power: "));
 		debug_println(power_status ? " (on)" : "(off)");
+		if (debug_) ESP_LOGD(TAG, "Set light - hue: %u, sat: %u, bri: %u, kel: %u, dur: %u, power: %s",
+			hue, sat, bri, kel, dur, power_status ? "on" : "off");
 
 		if (is_combined_mode())
 		{

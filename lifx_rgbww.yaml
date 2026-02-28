@@ -1,6 +1,7 @@
 esphome:
   name: lifx-rgbww
-  platform: ESP8266
+  
+exp8266: 
   board: d1_mini
 
 external_components:
