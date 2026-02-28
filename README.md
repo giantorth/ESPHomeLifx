@@ -1,8 +1,8 @@
 # ESPHomeLifx
 
-Port of Lifx LAN UDP protocol to <https://ESPHome.io> firmware.  
+Port of Lifx LAN UDP protocol to <https://ESPHome.io> firmware.
 
-My #1 motivation in creating this was so I could host a giant light show using Light DJ (<https://lightdjapp.com/>).  
+My #1 motivation in creating this was so I could host a giant light show using Light DJ (<https://lightdjapp.com/>).
 
 LifxLAN protocol is __**fast**__ and processes packets in 1-2ms. Make your Tuya/esp8266 lights realtime-responsive with this protocol.
 
@@ -15,6 +15,12 @@ This firmware is otherwise stable (thanks Esphome!) and I have had 20+ bulbs run
 If you add this component it should be the last item in the YAML or it might cause the ESP to crash if wifi has not yet been initialized.
 
 ## Release Notes
+
+### 0.6
+
+- Added support for combined RGBWW lights (single light entity with RGB + cold white + warm white channels)
+- Backward compatible: existing separate RGB + CWWW dual-light configurations still work
+- Refactored as an ESPHome external component (no more `includes:` / `custom_component:` needed)
 
 ### 0.5.1
 
@@ -61,68 +67,103 @@ If you add this component it should be the last item in the YAML or it might cau
 
 ## Instructions
 
-- A sample bulb YAML is provided for ESPHome configuration
-  - Light name will be same as Esphome name
-  - Code expects you to have a 'white_led' and a 'color_led' device to control
-  - Requires time component named 'ha_time'
-- Place lifx-emulation.h in your esphome folder (where all configs are located)
+This is an ESPHome external component sourced directly from GitHub. Add it to your YAML and configure a light for LIFX emulation.
 
-Top of light config should have the correct includes and libraries.  
-A time component is also required for this stack as shown below.  
-It is highly suggested you lower the esphome logging for protocol performance.
+Two light configurations are supported:
+
+### Option 1: Combined RGBWW light (recommended for RGBWW bulbs)
+
+Use a single `rgbww` platform light with all 5 channels in one entity:
 
 ```yaml
-esphome:
-  name: lifxtest
-  platform: your_platform_here
-  board: your_board_here
-  # Required for LIFX LAN support
-  includes:
-    - lifx-emulation.h
-  libraries:
-    - ESPAsyncUDP
+external_components:
+  - source:
+      type: git
+      url: https://github.com/giantorth/ESPHomeLifx
+      ref: master
+    components: [lifx_emulation]
 
-# Lifx emulation needs UTC time to respond to packets correctly.  
 time:
   - platform: sntp
     id: ha_time
 
-# Recommended esphome logger settings
+light:
+  - platform: rgbww
+    id: rgbww_led
+    name: "RGBWW Light"
+    red: red_out
+    green: green_out
+    blue: blue_out
+    cold_white: cold_white_out
+    warm_white: warm_white_out
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+
+lifx_emulation:
+  rgbww_led: rgbww_led
+  time_id: ha_time
+```
+
+### Option 2: Separate RGB + CWWW lights (dual-light mode)
+
+Use two separate light entities for color and white channels:
+
+```yaml
+external_components:
+  - source:
+      type: git
+      url: https://github.com/giantorth/ESPHomeLifx
+      ref: master
+    components: [lifx_emulation]
+
+time:
+  - platform: sntp
+    id: ha_time
+
+light:
+  - platform: rgb
+    id: color_led
+    name: "Color LED"
+    red: red_out
+    green: green_out
+    blue: blue_out
+
+  - platform: cwww
+    id: white_led
+    name: "White LED"
+    cold_white: cold_white_out
+    warm_white: warm_white_out
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+
+lifx_emulation:
+  color_led: color_led
+  white_led: white_led
+  time_id: ha_time
+```
+
+### Configuration options
+
+Full config not shown: *see `lifx_rgbww.yaml` and `lifx_dual.yaml` reference files in repo*
+
+The component allows definition of the Lifx Location and Group values:
+
+- `bulb_label` — defaults to the ESPHome device name if omitted
+- `bulb_location` — location string, up to 32 characters (default: "ESPHome")
+- `bulb_location_guid` — GUID for the location, randomly generate at <https://www.uuidgenerator.net/guid>
+- `bulb_location_time` — epoch in msec * 1,000,000 (how real bulbs store this value) <https://currentmillis.com/>
+- `bulb_group` — group string, up to 32 characters (default: "ESPHome")
+- `bulb_group_guid` — GUID for the group
+- `bulb_group_time` — epoch timestamp for the group
+
+If a location/group label is different between bulbs for the same GUID the application uses the highest time as the authoritative source. Bulbs do not need to share this value and use current time when setting. Defaults are provided in code if not set.
+
+It is highly suggested you lower the esphome logging for protocol performance:
+
+```yaml
 logger:
   level: WARN
   esp8266_store_log_strings_in_flash: False
-```
-
-Full config not shown: *see reference yaml in repo*
-
-The custom component allows definition of the Lifx Location and Group values.
-
-- The Location/Group string can be up to 32 characters long
-- GUIDs can be randomly generated if you are creating a new location/group for your bulbs <https://www.uuidgenerator.net/guid>
-- The timestamp is epoch in msec * 1,000,000 (how real bulbs store this value) <https://currentmillis.com/>
-  - If a location/group label is different between bulbs for the same GUID the application uses the highest time as the authoritative source
-  - Bulbs do not need to share this value and use current time when setting
-- Defaults for these values are in code if not set here
-
-```yaml
-# Required custom component for Lifx support
-custom_component:
-- lambda: |-
-  auto LifxLAN = new lifxUdp();
-  WiFi.macAddress(LifxLAN->mac);
-
-  LifxLAN->set_bulbLabel( App.get_name().c_str() );  
-
-  LifxLAN->set_bulbLocation( "Test Location" );
-  LifxLAN->set_bulbLocationGUID( "4b833820-49b1-4f97-b324-316098f259d3" );
-  LifxLAN->bulbLocationTime = 1600358586632000000;  // epoch in msec * 1,000,000
-
-  LifxLAN->set_bulbGroup( "Test Group" );
-  LifxLAN->set_bulbGroupGUID( "455820e8-3323-49f3-a7d0-598ba8092563" );
-  LifxLAN->bulbGroupTime = 1600358586632000000; // epoch in msec * 1,000,000
-
-  LifxLAN->beginUDP();
-  return {LifxLAN};
 ```
 
 ## Supported Applications
@@ -130,8 +171,6 @@ custom_component:
 - Official Lifx Windows/iOS/Android app control
   - Android app seems to work flawlessly
     - Android app has bug where it does not query device location/group values from bulb very often and uses cached values
-  - ~~iOS only: Bulbs may not appear instantly when loading the mobile app~~
-  - ~~iOS only: app seems to detect faster on first launch vs re-opening running app (warm start only remembers cloud bulbs??)~~
 - LightDJ (<https://lightdjapp.com/>)
   - High speed music-reactive light shows for up to 128 lights (Philips Hue can only do 10 bulbs in entertainment mode!)
   - Party-tested with 35+ lights running for hours without issue
@@ -152,19 +191,18 @@ custom_component:
 - Responses should mostly be identical to real bulb
   - Now with cloud provioning packet support (mobile app to bulb only)
 - Appears in a Location/Group for supported applications
+- Supports combined RGBWW lights or separate RGB + CWWW dual-light setups
 - Bulb can still integrate with DiyHue esphome configuration <https://github.com/diyhue/Lights/tree/master/ESPHome>
   - Optional DiyHue entertainment UDP socket support included in this code for multi-mode bulbs (#define DIYHUE)
 
 ## Lots of work still todo
 
 - No real Lifx Cloud support (don't count on it either)
-  - Required for Alexa/Google Home integration.  Use Home Assisistant or DiyHue instead?  
-- Code is a single file, need to figure out how to include additional cpp/h files in esphome custom components to refactor
+  - Required for Alexa/Google Home integration.  Use Home Assisistant or DiyHue instead?
 - Ignores packets coming from other offical bulbs yet (They seem to broadcast certain responses)
 - Real bulb MAC addresses all start with D0:73:D5, haven't tried mirroring this to see if behavior changes
 - Waveform bulb effects are not supported yet <https://lan.developer.lifx.com/docs/waveforms>
 - Setting/Restoring state on boot not implemented yet
-- No proper support for single RGB or RGBWW device control (yet)
 
 ## Debugging
 

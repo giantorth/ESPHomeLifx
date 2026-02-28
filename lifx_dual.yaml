@@ -1,0 +1,78 @@
+esphome:
+  name: lifx-dual
+  platform: ESP8266
+  board: d1_mini
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/giantorth/ESPHomeLifx
+      ref: master
+    components: [lifx_emulation]
+
+# Lifx emulation needs UTC time to respond to packets correctly.
+time:
+  - platform: sntp
+    id: ha_time
+
+logger:
+  level: WARN
+  esp8266_store_log_strings_in_flash: False
+
+wifi:
+  networks:
+  - ssid: "YOURINFORMATIONHERE"
+    password: !secret wifi
+  fast_connect: TRUE
+
+api:
+  password: !secret ota
+  reboot_timeout: 0s
+
+ota:
+  password: !secret ota
+
+# Example: Separate RGB + CWWW outputs (dual-light mode)
+output:
+  - platform: esp8266_pwm
+    pin: D1
+    id: cold_white_out
+
+  - platform: esp8266_pwm
+    pin: D2
+    id: warm_white_out
+
+  - platform: esp8266_pwm
+    pin: D5
+    id: blue_out
+
+  - platform: esp8266_pwm
+    pin: D6
+    id: green_out
+
+  - platform: esp8266_pwm
+    pin: D7
+    id: red_out
+
+light:
+  - platform: rgb
+    id: color_led
+    name: "Color LED"
+    red: red_out
+    green: green_out
+    blue: blue_out
+
+  - platform: cwww
+    id: white_led
+    name: "White LED"
+    cold_white: cold_white_out
+    warm_white: warm_white_out
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+
+lifx_emulation:
+  color_led: color_led
+  white_led: white_led
+  time_id: ha_time
+  bulb_location: "My Location"
+  bulb_group: "My Group"
