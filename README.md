@@ -8,7 +8,7 @@ LifxLAN protocol is __**fast**__ and processes packets in 1-2ms. Make your Tuya/
 
 The other motivation for this project is Esphome integration with Home Assistant is somewhat clunky and requires configuring each device.  Bulbs running this protocol will all be detected automatically by the Lifx integration and do not need to be configured individually.
 
-This firmware is otherwise stable (thanks Esphome!) and I have had 20+ bulbs running for nearly a year without issue.
+This firmware is otherwise stable (thanks Esphome!) and I have had 20+ bulbs running for multiple years without issue.
 
 ## !!! Warning
 
@@ -21,6 +21,7 @@ If you add this component it should be the last item in the YAML or it might cau
 - Added support for combined RGBWW lights (single light entity with RGB + cold white + warm white channels)
 - Backward compatible: existing separate RGB + CWWW dual-light configurations still work
 - Refactored as an ESPHome external component (no more `includes:` / `custom_component:` needed)
+- Supports saving label/group/location values if set via the official app
 
 ### 0.5.1
 
@@ -199,13 +200,30 @@ logger:
 - Ignores packets coming from other offical bulbs yet (They seem to broadcast certain responses)
 - Real bulb MAC addresses all start with D0:73:D5, haven't tried mirroring this to see if behavior changes
 - Waveform bulb effects are not supported yet <https://lan.developer.lifx.com/docs/waveforms>
-- Setting/Restoring state on boot not implemented yet
+## Persistent State
+
+The component saves bulb label, location, and group to flash whenever they are changed at runtime (e.g. via the LIFX app). On boot, if the YAML defaults haven't changed, the saved values are restored automatically.
+
+To use this feature, you must enable `restore_from_flash` in your ESPHome platform config:
+
+```yaml
+esp8266:
+  restore_from_flash: true
+```
+
+or for ESP32:
+
+```yaml
+esp32:
+  restore_from_flash: true
+```
+
+Without this option, ESPHome preferences are not written to flash and saved state will not survive reboots.
 
 ## Debugging
 
-- To enable, #define DEBUG in source file (off by default for performance)
-  - Will still show packet rate in msec via serial when disabled
-- Serial console will output all in/out packet contents in HEX
+- Enable debug logging with `debug: true` in the `lifx_emulation:` config block
+- Debug output includes human-readable packet names (e.g. `LightSetColor`, `GetService`) alongside hex/decimal type codes
 - Pull apart packets with Wireshark <https://github.com/mab5vot9us9a/WiresharkLIFXDissector>
 - Official protocol documentation <https://lan.developer.lifx.com/docs/introduction>
 
