@@ -28,6 +28,10 @@ void LifxEmulation::save_state_()
 	memcpy(state.bulbGroup, bulbGroup, sizeof(bulbGroup));
 	memcpy(state.bulbGroupGUID, bulbGroupGUID, sizeof(bulbGroupGUID));
 	state.bulbGroupTime = bulbGroupTime;
+	state.cloudStatus = cloudStatus;
+	memcpy(state.cloudBrokerUrl, cloudBrokerUrl, sizeof(cloudBrokerUrl));
+	memcpy(state.cloudAuthResponse, cloudAuthResponse, sizeof(cloudAuthResponse));
+	memcpy(state.authResponse, authResponse, sizeof(authResponse));
 	this->pref_.save(&state);
 	global_preferences->sync();
 	if (debug_) ESP_LOGD(TAG, "Saved state: label=%s, location=%s (%s), group=%s (%s)",
@@ -43,17 +47,27 @@ void LifxEmulation::setup()
 	this->yaml_hash_ = compute_yaml_hash_();
 	this->pref_ = global_preferences->make_preference<LifxPersistentState>(fnv1_hash("lifx_emulation_state"));
 	LifxPersistentState state;
-	if (this->pref_.load(&state) && state.yaml_hash == this->yaml_hash_) {
-		memcpy(bulbLabel, state.bulbLabel, sizeof(bulbLabel));
-		memcpy(bulbLocation, state.bulbLocation, sizeof(bulbLocation));
-		memcpy(bulbLocationGUID, state.bulbLocationGUID, sizeof(bulbLocationGUID));
-		bulbLocationTime = state.bulbLocationTime;
-		memcpy(bulbGroup, state.bulbGroup, sizeof(bulbGroup));
-		memcpy(bulbGroupGUID, state.bulbGroupGUID, sizeof(bulbGroupGUID));
-		bulbGroupTime = state.bulbGroupTime;
-		ESP_LOGI(TAG, "Restored saved state: label=%s", bulbLabel);
+	if (this->pref_.load(&state)) {
+		// Always restore cloud state regardless of YAML changes
+		cloudStatus = state.cloudStatus;
+		memcpy(cloudBrokerUrl, state.cloudBrokerUrl, sizeof(cloudBrokerUrl));
+		memcpy(cloudAuthResponse, state.cloudAuthResponse, sizeof(cloudAuthResponse));
+		memcpy(authResponse, state.authResponse, sizeof(authResponse));
+
+		if (state.yaml_hash == this->yaml_hash_) {
+			memcpy(bulbLabel, state.bulbLabel, sizeof(bulbLabel));
+			memcpy(bulbLocation, state.bulbLocation, sizeof(bulbLocation));
+			memcpy(bulbLocationGUID, state.bulbLocationGUID, sizeof(bulbLocationGUID));
+			bulbLocationTime = state.bulbLocationTime;
+			memcpy(bulbGroup, state.bulbGroup, sizeof(bulbGroup));
+			memcpy(bulbGroupGUID, state.bulbGroupGUID, sizeof(bulbGroupGUID));
+			bulbGroupTime = state.bulbGroupTime;
+			ESP_LOGI(TAG, "Restored saved state: label=%s", bulbLabel);
+		} else {
+			ESP_LOGI(TAG, "Using YAML defaults for label/location/group (YAML changed)");
+		}
 	} else {
-		ESP_LOGI(TAG, "Using YAML defaults (no saved state or YAML changed)");
+		ESP_LOGI(TAG, "Using YAML defaults (no saved state)");
 	}
 
 	this->beginUDP();
@@ -686,6 +700,7 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	case SET_CLOUD_STATE:
 	{
 		cloudStatus = request.data[0];
+		save_state_();
 		if (debug_) ESP_LOGD(TAG, "Cloud status changed to: %d", cloudStatus);
 	}
 	break;
@@ -709,6 +724,7 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 			{
 				cloudAuthResponse[i] = request.data[i];
 			}
+			save_state_();
 		}
 		if (request.packet_type == GET_CLOUD_AUTH || (request.res_ack & RES_REQUIRED))
 		{
@@ -730,6 +746,7 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 			{
 				cloudBrokerUrl[i] = request.data[i];
 			}
+			save_state_();
 		}
 		if (request.packet_type == GET_CLOUD_BROKER || (request.res_ack & RES_REQUIRED))
 		{

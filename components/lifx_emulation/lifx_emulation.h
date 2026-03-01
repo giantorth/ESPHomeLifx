@@ -27,6 +27,11 @@ struct LifxPersistentState {
 	char bulbGroup[32];
 	char bulbGroupGUID[37];
 	uint64_t bulbGroupTime;
+	// Cloud state (always restored, independent of yaml_hash)
+	uint8_t cloudStatus;
+	uint8_t cloudBrokerUrl[33];
+	uint8_t cloudAuthResponse[32];
+	uint8_t authResponse[56];
 };
 
 class LifxEmulation : public Component
