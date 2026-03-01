@@ -155,3 +155,69 @@ const byte CLOUD_BROKER_STATE = 0xd3; // (211)
 
 const uint16_t GET_COLOR_ZONE = 502; // getColorZones(502)
 const uint16_t STATE_COLOR_ZONE = 503; // stateColorZone(503)
+
+inline const char *lifx_packet_type_name(uint16_t type) {
+	switch (type) {
+	case GET_PAN_GATEWAY: return "GetService";
+	case PAN_GATEWAY: return "StateService";
+	case GET_HOST_INFO: return "GetHostInfo";
+	case HOST_INFO: return "StateHostInfo";
+	case GET_MESH_FIRMWARE_STATE: return "GetHostFirmware";
+	case MESH_FIRMWARE_STATE: return "StateHostFirmware";
+	case GET_WIFI_INFO: return "GetWifiInfo";
+	case WIFI_INFO: return "StateWifiInfo";
+	case GET_WIFI_FIRMWARE_STATE: return "GetWifiFirmware";
+	case WIFI_FIRMWARE_STATE: return "StateWifiFirmware";
+	case GET_POWER_STATE: return "GetPower";
+	case SET_POWER_STATE: return "SetPower";
+	case POWER_STATE: return "StatePower";
+	case GET_BULB_LABEL: return "GetLabel";
+	case SET_BULB_LABEL: return "SetLabel";
+	case BULB_LABEL: return "StateLabel";
+	case GET_BULB_TAGS: return "GetTags";
+	case SET_BULB_TAGS: return "SetTags";
+	case BULB_TAGS: return "StateTags";
+	case GET_BULB_TAG_LABELS: return "GetTagLabels";
+	case SET_BULB_TAG_LABELS: return "SetTagLabels";
+	case BULB_TAG_LABELS: return "StateTagLabels";
+	case GET_VERSION_STATE: return "GetVersion";
+	case VERSION_STATE: return "StateVersion";
+	case GET_INFO: return "GetInfo";
+	case STATE_INFO: return "StateInfo";
+	case ACKNOWLEDGEMENT: return "Acknowledgement";
+	case GET_LOCATION_STATE: return "GetLocation";
+	case SET_LOCATION_STATE: return "SetLocation";
+	case LOCATION_STATE: return "StateLocation";
+	case GET_GROUP_STATE: return "GetGroup";
+	case SET_GROUP_STATE: return "SetGroup";
+	case GROUP_STATE: return "StateGroup";
+	case GET_AUTH_STATE: return "GetAuth";
+	case SET_AUTH_STATE: return "SetAuth";
+	case AUTH_STATE: return "StateAuth";
+	case ECHO_REQUEST: return "EchoRequest";
+	case ECHO_RESPONSE: return "EchoResponse";
+	case GET_LIGHT_STATE: return "LightGet";
+	case SET_LIGHT_STATE: return "LightSetColor";
+	case SET_WAVEFORM: return "LightSetWaveform";
+	case LIGHT_STATUS: return "LightState";
+	case GET_POWER_STATE2: return "LightGetPower";
+	case SET_POWER_STATE2: return "LightSetPower";
+	case POWER_STATE2: return "LightStatePower";
+	case SET_WAVEFORM_OPTIONAL: return "LightSetWaveformOptional";
+	case GET_INFARED_STATE: return "GetInfrared";
+	case STATE_INFARED_STATE: return "StateInfrared";
+	case SET_INFARED_STATE: return "SetInfrared";
+	case GET_CLOUD_STATE: return "GetCloud";
+	case SET_CLOUD_STATE: return "SetCloud";
+	case CLOUD_STATE: return "StateCloud";
+	case GET_CLOUD_AUTH: return "GetCloudAuth";
+	case SET_CLOUD_AUTH: return "SetCloudAuth";
+	case CLOUD_AUTH_STATE: return "StateCloudAuth";
+	case GET_CLOUD_BROKER: return "GetCloudBroker";
+	case SET_CLOUD_BROKER: return "SetCloudBroker";
+	case CLOUD_BROKER_STATE: return "StateCloudBroker";
+	case GET_COLOR_ZONE: return "GetColorZones";
+	case STATE_COLOR_ZONE: return "StateZone";
+	default: return "Unknown";
+	}
+}

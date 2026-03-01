@@ -29,6 +29,8 @@ void LifxEmulation::save_state_()
 	state.bulbGroupTime = bulbGroupTime;
 	this->pref_.save(&state);
 	global_preferences->sync();
+	if (debug_) ESP_LOGD(TAG, "Saved state: label=%s, location=%s (%s), group=%s (%s)",
+		bulbLabel, bulbLocation, bulbLocationGUID, bulbGroup, bulbGroupGUID);
 }
 
 void LifxEmulation::setup()
@@ -171,7 +173,7 @@ void LifxEmulation::buildLightStateData(byte *out)
 
 void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 {
-	if (debug_) ESP_LOGD(TAG, "-> Packet 0x%02X (%d)", request.packet_type, request.packet_type);
+	if (debug_) ESP_LOGD(TAG, "-> %s (0x%02X/%d)", lifx_packet_type_name(request.packet_type), request.packet_type, request.packet_type);
 
 	LifxPacket response;
 	for (int x = 0; x < 4; x++)
@@ -687,7 +689,7 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 
 	default:
 	{
-		ESP_LOGW(TAG, "Unknown packet type: 0x%02X/%d", request.packet_type, request.packet_type);
+		ESP_LOGW(TAG, "Unknown packet type: %s (0x%02X/%d)", lifx_packet_type_name(request.packet_type), request.packet_type, request.packet_type);
 	}
 	break;
 	}
@@ -800,7 +802,7 @@ unsigned int LifxEmulation::sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi)
 
 	Udpi.write(_message, _packetLength);
 
-	if (debug_) ESP_LOGD(TAG, "Sent Packet Type 0x%02X (%d, %d bytes)", pkt.packet_type, pkt.packet_type, _packetLength);
+	if (debug_) ESP_LOGD(TAG, "<- %s (0x%02X/%d, %d bytes)", lifx_packet_type_name(pkt.packet_type), pkt.packet_type, pkt.packet_type, _packetLength);
 	return _packetLength;
 }
 
