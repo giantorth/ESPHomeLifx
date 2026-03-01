@@ -1,5 +1,6 @@
 #include "lifx_emulation.h"
 #include "lifx_utils.h"
+#include <cmath>
 
 namespace esphome {
 namespace lifx_emulation {
@@ -216,6 +217,7 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 
 	case SET_LIGHT_STATE:
 	{
+		stopWaveform(false);
 		hue = word(request.data[2], request.data[1]);
 		sat = word(request.data[4], request.data[3]);
 		bri = word(request.data[6], request.data[5]);
@@ -240,45 +242,96 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 
 	case SET_WAVEFORM:
 	{
-		hue = word(request.data[3], request.data[2]);
-		sat = word(request.data[5], request.data[4]);
-		bri = word(request.data[7], request.data[6]);
-		kel = word(request.data[9], request.data[8]);
-		dur = (uint32_t)request.data[10] << 0 |
-			  (uint32_t)request.data[11] << 8 |
-			  (uint32_t)request.data[12] << 16 |
-			  (uint32_t)request.data[13] << 24;
-		setLight();
+		// SetWaveform(103) payload:
+		// [0] reserved, [1] transient, [2-3] hue, [4-5] sat,
+		// [6-7] bri, [8-9] kel, [10-13] period, [14-17] cycles(float),
+		// [18-19] skew_ratio(int16), [20] waveform
+		trans = request.data[1];
+		wave_hue_ = word(request.data[3], request.data[2]);
+		wave_sat_ = word(request.data[5], request.data[4]);
+		wave_bri_ = word(request.data[7], request.data[6]);
+		wave_kel_ = word(request.data[9], request.data[8]);
+		period = (uint32_t)request.data[10] |
+				 (uint32_t)request.data[11] << 8 |
+				 (uint32_t)request.data[12] << 16 |
+				 (uint32_t)request.data[13] << 24;
+		memcpy(&cycles, &request.data[14], sizeof(float));
+		skew_ratio = (int16_t)(request.data[18] | (request.data[19] << 8));
+		waveform = request.data[20];
+
+		if (debug_) ESP_LOGD(TAG, "Waveform: type=%u transient=%u period=%u cycles=%.1f skew=%d",
+			waveform, trans, period, cycles, skew_ratio);
+
+		startWaveform();
+
+		if (request.res_ack & RES_REQUIRED)
+		{
+			response.packet_type = LIGHT_STATUS;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			buildLightStateData(response.data);
+			response.data_size = 52;
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
 	case SET_WAVEFORM_OPTIONAL:
 	{
+		// SetWaveformOptional(119) payload:
+		// [0] reserved, [1] transient, [2-3] hue, [4-5] sat,
+		// [6-7] bri, [8-9] kel, [10-13] period, [14-17] cycles(float),
+		// [18-19] skew_ratio(int16), [20] waveform,
+		// [21] set_hue, [22] set_saturation, [23] set_brightness, [24] set_kelvin
+		trans = request.data[1];
+
+		// Start from current values, then apply only flagged fields
+		wave_hue_ = hue;
+		wave_sat_ = sat;
+		wave_bri_ = bri;
+		wave_kel_ = kel;
+
 		if (request.data[21])
 		{
-			hue = word(request.data[3], request.data[2]);
-			if (debug_) ESP_LOGD(TAG, "set hue: %u", hue);
+			wave_hue_ = word(request.data[3], request.data[2]);
+			if (debug_) ESP_LOGD(TAG, "set hue: %u", wave_hue_);
 		}
 		if (request.data[22])
 		{
-			sat = word(request.data[5], request.data[4]);
-			if (debug_) ESP_LOGD(TAG, "set sat: %u", sat);
+			wave_sat_ = word(request.data[5], request.data[4]);
+			if (debug_) ESP_LOGD(TAG, "set sat: %u", wave_sat_);
 		}
 		if (request.data[23])
 		{
-			bri = word(request.data[7], request.data[6]);
-			if (debug_) ESP_LOGD(TAG, "set bri: %u", bri);
+			wave_bri_ = word(request.data[7], request.data[6]);
+			if (debug_) ESP_LOGD(TAG, "set bri: %u", wave_bri_);
 		}
 		if (request.data[24])
 		{
-			kel = word(request.data[9], request.data[8]);
-			if (debug_) ESP_LOGD(TAG, "set kel: %u", kel);
+			wave_kel_ = word(request.data[9], request.data[8]);
+			if (debug_) ESP_LOGD(TAG, "set kel: %u", wave_kel_);
 		}
-		dur = (uint32_t)request.data[10] << 0 |
-			  (uint32_t)request.data[11] << 8 |
-			  (uint32_t)request.data[12] << 16 |
-			  (uint32_t)request.data[13] << 24;
-		setLight();
+
+		period = (uint32_t)request.data[10] |
+				 (uint32_t)request.data[11] << 8 |
+				 (uint32_t)request.data[12] << 16 |
+				 (uint32_t)request.data[13] << 24;
+		memcpy(&cycles, &request.data[14], sizeof(float));
+		skew_ratio = (int16_t)(request.data[18] | (request.data[19] << 8));
+		waveform = request.data[20];
+
+		if (debug_) ESP_LOGD(TAG, "WaveformOptional: type=%u transient=%u period=%u cycles=%.1f skew=%d",
+			waveform, trans, period, cycles, skew_ratio);
+
+		startWaveform();
+
+		if (request.res_ack & RES_REQUIRED)
+		{
+			response.packet_type = LIGHT_STATUS;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			buildLightStateData(response.data);
+			response.data_size = 52;
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -319,6 +372,7 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	case SET_POWER_STATE:
 	case SET_POWER_STATE2:
 	{
+		stopWaveform(false);
 		power_status = word(request.data[1], request.data[0]);
 		setLight();
 	}
@@ -804,6 +858,130 @@ unsigned int LifxEmulation::sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi)
 
 	if (debug_) ESP_LOGD(TAG, "<- %s (0x%02X/%d, %d bytes)", lifx_packet_type_name(pkt.packet_type), pkt.packet_type, pkt.packet_type, _packetLength);
 	return _packetLength;
+}
+
+void LifxEmulation::startWaveform()
+{
+	// Save current color as the waveform origin
+	orig_hue_ = hue;
+	orig_sat_ = sat;
+	orig_bri_ = bri;
+	orig_kel_ = kel;
+
+	if (period == 0) {
+		// Instant: just apply target color directly
+		hue = wave_hue_;
+		sat = wave_sat_;
+		bri = wave_bri_;
+		kel = wave_kel_;
+		dur = 0;
+		setLight();
+		return;
+	}
+
+	waveform_active_ = true;
+	waveform_start_ = millis();
+	waveform_last_update_ = 0;
+
+	if (debug_) ESP_LOGD(TAG, "Waveform started: orig(%u,%u,%u,%u) -> target(%u,%u,%u,%u)",
+		orig_hue_, orig_sat_, orig_bri_, orig_kel_,
+		wave_hue_, wave_sat_, wave_bri_, wave_kel_);
+}
+
+void LifxEmulation::stopWaveform(bool restore)
+{
+	if (!waveform_active_) return;
+	waveform_active_ = false;
+
+	if (restore) {
+		// Transient: return to original color
+		hue = orig_hue_;
+		sat = orig_sat_;
+		bri = orig_bri_;
+		kel = orig_kel_;
+	} else {
+		// Non-transient: end on target color
+		hue = wave_hue_;
+		sat = wave_sat_;
+		bri = wave_bri_;
+		kel = wave_kel_;
+	}
+
+	dur = 0;
+	setLight();
+
+	if (debug_) ESP_LOGD(TAG, "Waveform stopped (restore=%s)", restore ? "true" : "false");
+}
+
+void LifxEmulation::loop()
+{
+	if (!waveform_active_) return;
+
+	unsigned long now = millis();
+
+	// Rate-limit updates to ~20fps to avoid overwhelming the light hardware
+	if (now - waveform_last_update_ < 50) return;
+	waveform_last_update_ = now;
+
+	unsigned long elapsed = now - waveform_start_;
+
+	// Check if waveform is complete (cycles > 0 means finite)
+	if (cycles > 0 && period > 0) {
+		unsigned long total_ms = (unsigned long)(period * cycles);
+		if (elapsed >= total_ms) {
+			stopWaveform(trans != 0);
+			return;
+		}
+	}
+
+	// Calculate position within current cycle (0.0 to 1.0)
+	float cycle_pos = fmodf((float)elapsed / (float)period, 1.0f);
+
+	// Calculate interpolation factor based on waveform type
+	// f=0.0 means original color, f=1.0 means target color
+	float f = 0.0f;
+	switch (waveform) {
+	case WAVEFORM_SAW:
+		// Linear ramp from original to target, then snap back
+		f = cycle_pos;
+		break;
+	case WAVEFORM_SINE:
+		// Smooth sinusoidal oscillation: original -> target -> original
+		f = (1.0f - cosf(cycle_pos * 2.0f * (float)M_PI)) / 2.0f;
+		break;
+	case WAVEFORM_HALF_SINE:
+		// Smooth half-sine: original -> target -> original (positive half only)
+		f = sinf(cycle_pos * (float)M_PI);
+		break;
+	case WAVEFORM_TRIANGLE:
+		// Linear triangle: original -> target -> original
+		f = cycle_pos < 0.5f ? cycle_pos * 2.0f : 2.0f - cycle_pos * 2.0f;
+		break;
+	case WAVEFORM_PULSE: {
+		// Square wave with duty cycle controlled by skew_ratio
+		// skew_ratio: -32768..32767 maps to 0..1, duty = 1 - ratio
+		float ratio = ((float)skew_ratio + 32768.0f) / 65535.0f;
+		f = cycle_pos < (1.0f - ratio) ? 1.0f : 0.0f;
+		break;
+	}
+	default:
+		f = 0.0f;
+		break;
+	}
+
+	// Interpolate HSBK values
+	// Hue uses shortest path around the color wheel
+	int32_t hue_diff = (int32_t)wave_hue_ - (int32_t)orig_hue_;
+	if (hue_diff > 32767) hue_diff -= 65536;
+	if (hue_diff < -32768) hue_diff += 65536;
+	hue = (uint16_t)((int32_t)orig_hue_ + (int32_t)(f * (float)hue_diff));
+
+	sat = (uint16_t)((float)orig_sat_ + f * ((float)wave_sat_ - (float)orig_sat_));
+	bri = (uint16_t)((float)orig_bri_ + f * ((float)wave_bri_ - (float)orig_bri_));
+	kel = (uint16_t)((float)orig_kel_ + f * ((float)wave_kel_ - (float)orig_kel_));
+
+	dur = 0; // No transition for waveform frame updates
+	setLight();
 }
 
 void LifxEmulation::setLight()
