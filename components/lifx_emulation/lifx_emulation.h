@@ -71,7 +71,7 @@ private:
 
 	bool is_combined_mode() { return this->rgbww_led_ != nullptr; }
 
-	float maxColor = 255;
+	static const int maxColor = 255;
 	// initial bulb values - warm white!
 	uint16_t power_status = 65535;
 	uint16_t hue = 0;
@@ -112,9 +112,10 @@ private:
 	// ---- Method declarations (implemented in lifx_emulation.cpp) ----
 	void beginUDP();
 	void incomingUDP(AsyncUDPPacket &packet);
-	void processRequest(byte *packetBuffer, float packetSize, LifxPacket &request);
+	void processRequest(byte *packetBuffer, uint32_t packetSize, LifxPacket &request);
 	void handleRequest(LifxPacket &request, AsyncUDPPacket &packet);
 	unsigned int sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi);
+	void buildLightStateData(byte *out);
 	void setLight();
 	void setLightCombined();
 	void setLightDual();

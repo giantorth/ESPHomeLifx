@@ -15,16 +15,12 @@ void LifxEmulation::setup()
 
 void LifxEmulation::beginUDP()
 {
-	debug_print(F("Setting Light Name: "));
-	debug_println(bulbLabel);
 	if (debug_) ESP_LOGD(TAG, "Setting Light Name: %s", bulbLabel);
 
 	// Convert incoming guid strings to byte arrays (strips dashes)
 	hexCharacterStringToBytes(bulbGroupGUIDb, (const char *)bulbGroupGUID);
 	hexCharacterStringToBytes(bulbLocationGUIDb, (const char *)bulbLocationGUID);
 
-	debug_print("Wifi Signal: ");
-	debug_println(WiFi.RSSI(), DEC);
 	if (debug_) ESP_LOGD(TAG, "Wifi Signal: %d", WiFi.RSSI());
 
 	// start listening for packets
@@ -52,82 +48,86 @@ void LifxEmulation::incomingUDP(AsyncUDPPacket &packet)
 	int packetSize = packet.length();
 	rx_bytes += packetSize;
 
-	uint8_t packetBuffer[packetSize];
+	if (packetSize > LIFX_MAX_PACKET_LENGTH) {
+		ESP_LOGW(TAG, "Packet too large (%d bytes), ignoring", packetSize);
+		return;
+	}
+	uint8_t packetBuffer[LIFX_MAX_PACKET_LENGTH];
 	memcpy(packetBuffer, packet.data(), packetSize);
 
-	debug_println();
-	debug_print(F("Packet Arrived ("));
 	IPAddress remote_addr = (packet.remoteIP());
 	IPAddress local_addr = packet.localIP();
 	int remote_port = packet.remotePort();
 	if (debug_) ESP_LOGD(TAG, "Packet Arrived (%s:%d->%s)(%d bytes)",
 		remote_addr.toString().c_str(), remote_port,
 		local_addr.toString().c_str(), packetSize);
-	debug_print(remote_addr);
-	debug_print(F(":"));
-	debug_print(remote_port);
-	debug_print("->");
-	debug_print(local_addr);
-	debug_print(F(")("));
-	debug_print(packetSize);
-	debug_print(F(" bytes): "));
-	for (int i = 0; i < packetSize; i++)
-	{
-		if (packetBuffer[i] <= 0x0F)
-		{
-			debug_print(F("0"));
-		}
-		debug_print(packetBuffer[i], HEX);
-		debug_print(SPACE);
-	}
-	debug_println();
 
 	LifxPacket request;
 	processRequest(packetBuffer, packetSize, request);
 	handleRequest(request, packet);
 }
 
-void LifxEmulation::processRequest(byte *packetBuffer, float packetSize, LifxPacket &request)
+void LifxEmulation::processRequest(byte *packetBuffer, uint32_t packetSize, LifxPacket &request)
 {
-	request.size = packetBuffer[0] + (packetBuffer[1] << 8);	 //little endian
-	request.protocol = packetBuffer[2] + (packetBuffer[3] << 8); //little endian
+	request.size = packetBuffer[0] | (packetBuffer[1] << 8);
+	request.protocol = packetBuffer[2] | (packetBuffer[3] << 8);
 
-	byte sourceID[] = {packetBuffer[4], packetBuffer[5], packetBuffer[6], packetBuffer[7]};
-	memcpy(request.source, sourceID, 4);
+	memcpy(request.source, packetBuffer + 4, 4);
+	memcpy(request.bulbAddress, packetBuffer + 8, 6);
 
-	byte bulbAddress[] = {
-		packetBuffer[8], packetBuffer[9], packetBuffer[10], packetBuffer[11], packetBuffer[12], packetBuffer[13]};
-	memcpy(request.bulbAddress, bulbAddress, 6);
+	request.reserved2 = packetBuffer[14] | (packetBuffer[15] << 8);
 
-	request.reserved2 = packetBuffer[14] + packetBuffer[15];
-
-	byte site[] = {
-		packetBuffer[16], packetBuffer[17], packetBuffer[18], packetBuffer[19], packetBuffer[20], packetBuffer[21]};
-	memcpy(request.site, site, 6);
+	memcpy(request.site, packetBuffer + 16, 6);
 
 	request.res_ack = packetBuffer[22];
 	request.sequence = packetBuffer[23];
-	request.timestamp = packetBuffer[24] + packetBuffer[25] + packetBuffer[26] + packetBuffer[27] +
-						packetBuffer[28] + packetBuffer[29] + packetBuffer[30] + packetBuffer[31];
-	request.packet_type = packetBuffer[32] + (packetBuffer[33] << 8); //little endian
-	request.reserved4 = packetBuffer[34] + packetBuffer[35];
+	request.timestamp = (uint64_t)packetBuffer[24] |
+						((uint64_t)packetBuffer[25] << 8) |
+						((uint64_t)packetBuffer[26] << 16) |
+						((uint64_t)packetBuffer[27] << 24) |
+						((uint64_t)packetBuffer[28] << 32) |
+						((uint64_t)packetBuffer[29] << 40) |
+						((uint64_t)packetBuffer[30] << 48) |
+						((uint64_t)packetBuffer[31] << 56);
+	request.packet_type = packetBuffer[32] | (packetBuffer[33] << 8);
+	request.reserved4 = packetBuffer[34] | (packetBuffer[35] << 8);
 
-	int j = 0;
-	for (unsigned int i = LifxPacketSize; i < packetSize; i++)
+	uint32_t data_len = packetSize > LifxPacketSize ? packetSize - LifxPacketSize : 0;
+	if (data_len > sizeof(request.data))
+		data_len = sizeof(request.data);
+	memcpy(request.data, packetBuffer + LifxPacketSize, data_len);
+	request.data_size = data_len;
+}
+
+void LifxEmulation::buildLightStateData(byte *out)
+{
+	byte StateData[52] = {
+		lowByte(hue),
+		highByte(hue),
+		lowByte(sat),
+		highByte(sat),
+		lowByte(bri),
+		highByte(bri),
+		lowByte(kel),
+		highByte(kel),
+		lowByte(dim),
+		highByte(dim),
+		lowByte(power_status),
+		highByte(power_status),
+	};
+	for (int i = 0; i < sizeof(bulbLabel); i++)
 	{
-		request.data[j++] = packetBuffer[i];
+		StateData[i + 12] = bulbLabel[i];
 	}
-
-	request.data_size = j;
+	for (int j = 0; j < sizeof(bulbTags); j++)
+	{
+		StateData[j + 12 + 32] = bulbTags[j];
+	}
+	memcpy(out, StateData, sizeof(StateData));
 }
 
 void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 {
-	debug_print(F("-> Packet 0x"));
-	debug_print(request.packet_type, HEX);
-	debug_print(F(" ("));
-	debug_print(request.packet_type, DEC);
-	debug_println(F(")"));
 	if (debug_) ESP_LOGD(TAG, "-> Packet 0x%02X (%d)", request.packet_type, request.packet_type);
 
 	LifxPacket response;
@@ -186,30 +186,8 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 			response.res_ack = NO_RESPONSE;
 			response.packet_type = LIGHT_STATUS;
 			response.protocol = LifxProtocol_AllBulbsResponse;
-			byte StateData[52] = {
-				lowByte(hue),
-				highByte(hue),
-				lowByte(sat),
-				highByte(sat),
-				lowByte(bri),
-				highByte(bri),
-				lowByte(kel),
-				highByte(kel),
-				lowByte(dim),
-				highByte(dim),
-				lowByte(power_status),
-				highByte(power_status),
-			};
-			for (int i = 0; i < sizeof(bulbLabel); i++)
-			{
-				StateData[i + 12] = bulbLabel[i];
-			}
-			for (int j = 0; j < sizeof(bulbTags); j++)
-			{
-				StateData[j + 12 + 32] = bulbTags[j];
-			}
-			memcpy(response.data, StateData, sizeof(StateData));
-			response.data_size = sizeof(StateData);
+			buildLightStateData(response.data);
+			response.data_size = 52;
 			sendPacket(response, packet);
 		}
 	}
@@ -233,23 +211,23 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	{
 		if (request.data[21])
 		{
-			debug_print(F(" set hue "));
 			hue = word(request.data[3], request.data[2]);
+			if (debug_) ESP_LOGD(TAG, "set hue: %u", hue);
 		}
 		if (request.data[22])
 		{
-			debug_print(F(" set sat "));
 			sat = word(request.data[5], request.data[4]);
+			if (debug_) ESP_LOGD(TAG, "set sat: %u", sat);
 		}
 		if (request.data[23])
 		{
-			debug_print(F(" set bri "));
 			bri = word(request.data[7], request.data[6]);
+			if (debug_) ESP_LOGD(TAG, "set bri: %u", bri);
 		}
 		if (request.data[24])
 		{
-			debug_print(F(" set kel "));
 			kel = word(request.data[9], request.data[8]);
+			if (debug_) ESP_LOGD(TAG, "set kel: %u", kel);
 		}
 		dur = (uint32_t)request.data[10] << 0 |
 			  (uint32_t)request.data[11] << 8 |
@@ -264,30 +242,8 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 		response.res_ack = NO_RESPONSE;
 		response.packet_type = LIGHT_STATUS;
 		response.protocol = LifxProtocol_AllBulbsResponse;
-		byte StateData[52] = {
-			lowByte(hue),
-			highByte(hue),
-			lowByte(sat),
-			highByte(sat),
-			lowByte(bri),
-			highByte(bri),
-			lowByte(kel),
-			highByte(kel),
-			lowByte(dim),
-			highByte(dim),
-			lowByte(power_status),
-			highByte(power_status),
-		};
-		for (int i = 0; i < sizeof(bulbLabel); i++)
-		{
-			StateData[i + 12] = bulbLabel[i];
-		}
-		for (int j = 0; j < sizeof(bulbTags); j++)
-		{
-			StateData[j + 12 + 32] = bulbTags[j];
-		}
-		memcpy(response.data, StateData, sizeof(StateData));
-		response.data_size = sizeof(StateData);
+		buildLightStateData(response.data);
+		response.data_size = 52;
 		sendPacket(response, packet);
 	}
 	break;
@@ -590,9 +546,8 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	{
 		response.packet_type = WIFI_INFO;
 		response.protocol = LifxProtocol_AllBulbsResponse;
-		float rssi = pow(10, (WiFi.RSSI() / 10));
-		debug_print("RSSI: ");
-		debug_println(rssi, DEC);
+		float rssi = pow(10.0, WiFi.RSSI() / 10.0);
+		if (debug_) ESP_LOGD(TAG, "RSSI: %f", rssi);
 
 		byte *rssi_p = (byte *)&rssi;
 		byte *tx_p = (byte *)&tx_bytes;
@@ -622,8 +577,7 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	case SET_CLOUD_STATE:
 	{
 		cloudStatus = request.data[0];
-		debug_print("Cloud status changed to: ");
-		debug_println(cloudStatus, DEC);
+		if (debug_) ESP_LOGD(TAG, "Cloud status changed to: %d", cloudStatus);
 	}
 	break;
 
@@ -699,7 +653,7 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	case BULB_LABEL:
 	{
 		// Ignore response packets from other bulbs
-		debug_println("Ignoring bulb response packet");
+		if (debug_) ESP_LOGD(TAG, "Ignoring bulb response packet");
 	}
 	break;
 
@@ -714,23 +668,17 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	switch (request.res_ack)
 	{
 	case NO_RESPONSE:
-	{
-		debug_println("No RES_ACK");
-	}
-	break;
+		break;
 
 	case RES_REQUIRED:
-	{
-		debug_println("Response Requested");
-	}
-	break;
+		break;
 
 	case RES_ACK_PAN_REQUIRED:
 	case ACK_PAN_REQUIRED:
 	case RES_ACK_REQUIRED:
 	case ACK_REQUIRED:
 	{
-		debug_println("Acknowledgement Requested");
+		if (debug_) ESP_LOGD(TAG, "Acknowledgement Requested");
 		response.packet_type = ACKNOWLEDGEMENT;
 		response.res_ack = NO_RESPONSE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
@@ -742,20 +690,19 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 
 	case PAN_REQUIRED:
 	{
-		debug_println("PAN Response Required?");
+		if (debug_) ESP_LOGD(TAG, "PAN Response Required");
 	}
 	break;
 
 	case RES_PAN_REQUIRED:
 	{
-		debug_println("RES & PAN Response Required?");
+		if (debug_) ESP_LOGD(TAG, "RES & PAN Response Required");
 	}
 	break;
 
 	default:
 	{
-		debug_print("Unknown RES_ACK ");
-		debug_println(request.res_ack, HEX);
+		if (debug_) ESP_LOGD(TAG, "Unknown RES_ACK 0x%02X", request.res_ack);
 	}
 	}
 }
@@ -770,10 +717,10 @@ unsigned int LifxEmulation::sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi)
 	uint64_t packetT = (uint64_t)(((uint64_t)time.timestamp * 1000) * 1000000 + LifxMagicNum);
 	uint8_t *packetTime = (uint8_t *)&packetT;
 
-	uint8_t _message[totalSize + 1];
+	uint8_t _message[LifxPacketSize + sizeof(pkt.data)];
 	int _packetLength = 0;
 
-	memset(_message, 0, totalSize + 1);
+	memset(_message, 0, sizeof(_message));
 
 	//// FRAME
 	_message[_packetLength++] = (lowByte(totalSize));
@@ -826,45 +773,11 @@ unsigned int LifxEmulation::sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi)
 	Udpi.write(_message, _packetLength);
 
 	if (debug_) ESP_LOGD(TAG, "Sent Packet Type 0x%02X (%d, %d bytes)", pkt.packet_type, pkt.packet_type, _packetLength);
-	debug_print(F("Sent Packet Type 0x"));
-	debug_print(pkt.packet_type, HEX);
-	debug_print(F(" ("));
-	debug_print(pkt.packet_type, DEC);
-	debug_print(F(", "));
-	debug_print(_packetLength);
-	debug_print(F(" bytes): "));
-
-	for (int j = 0; j < _packetLength; j++)
-	{
-		if (_message[j] <= 0x0F)
-		{
-			debug_print(F("0"));
-		}
-		debug_print(_message[j], HEX);
-		debug_print(SPACE);
-	}
-	debug_println();
 	return _packetLength;
 }
 
 void LifxEmulation::setLight()
 {
-	unsigned long loopRate = millis() - lastChange;
-	debug_print(F("Packet rate:"));
-	debug_print(loopRate);
-	debug_println(F("msec"));
-	debug_print(F("Set light - hue: "));
-	debug_print(hue);
-	debug_print(F(", sat: "));
-	debug_print(sat);
-	debug_print(F(", bri: "));
-	debug_print(bri);
-	debug_print(F(", kel: "));
-	debug_print(kel);
-	debug_print(F(", dur: "));
-	debug_print(dur);
-	debug_print(F(", power: "));
-	debug_println(power_status ? " (on)" : "(off)");
 	if (debug_) ESP_LOGD(TAG, "Set light - hue: %u, sat: %u, bri: %u, kel: %u, dur: %u, power: %s",
 		hue, sat, bri, kel, dur, power_status ? "on" : "off");
 
@@ -881,8 +794,6 @@ void LifxEmulation::setLight()
 
 void LifxEmulation::setLightCombined()
 {
-	int maxColor = 255;
-
 	if (power_status && bri)
 	{
 		float bright = (float)bri / 65535;
@@ -932,8 +843,6 @@ void LifxEmulation::setLightCombined()
 
 void LifxEmulation::setLightDual()
 {
-	int maxColor = 255;
-
 	if (power_status && bri)
 	{
 		float bright = (float)bri / 65535;
