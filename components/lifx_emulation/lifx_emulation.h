@@ -3,6 +3,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
+#include "esphome/core/preferences.h"
 #include "esphome/components/light/light_state.h"
 #include "esphome/components/time/real_time_clock.h"
 #ifdef USE_ESP8266
@@ -16,6 +17,17 @@
 
 namespace esphome {
 namespace lifx_emulation {
+
+struct LifxPersistentState {
+	uint32_t yaml_hash;
+	char bulbLabel[32];
+	char bulbLocation[32];
+	char bulbLocationGUID[37];
+	uint64_t bulbLocationTime;
+	char bulbGroup[32];
+	char bulbGroupGUID[37];
+	uint64_t bulbGroupTime;
+};
 
 class LifxEmulation : public Component
 {
@@ -45,6 +57,16 @@ public:
 	// Run after WiFi is established so the UDP listener can bind successfully
 	float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
 
+private:
+	// ---- Member pointers set via setters ----
+	light::LightState *color_led_{nullptr};
+	light::LightState *white_led_{nullptr};
+	light::LightState *rgbww_led_{nullptr};
+	time::RealTimeClock *ha_time_{nullptr};
+	bool debug_{false};
+
+	bool is_combined_mode() { return this->rgbww_led_ != nullptr; }
+
 	byte mac[6] = {};
 
 	char bulbLabel[32] = "";
@@ -60,16 +82,6 @@ public:
 	byte cloudBrokerUrl[33] = {0x00}; // Unclouded response
 	unsigned char cloudAuthResponse[32] = {0x00}; // Unclouded response
 	byte authResponse[56] = {0x00};
-
-private:
-	// ---- Member pointers set via setters ----
-	light::LightState *color_led_{nullptr};
-	light::LightState *white_led_{nullptr};
-	light::LightState *rgbww_led_{nullptr};
-	time::RealTimeClock *ha_time_{nullptr};
-	bool debug_{false};
-
-	bool is_combined_mode() { return this->rgbww_led_ != nullptr; }
 
 	static const int maxColor = 255;
 	// initial bulb values - warm white!
@@ -108,6 +120,12 @@ private:
 	uint8_t guidSeq[16] = {3, 2, 1, 0, 5, 4, 7, 6, 8, 9, 10, 11, 12, 13, 14, 15};
 
 	AsyncUDP Udp;
+
+	// ---- Persistence ----
+	ESPPreferenceObject pref_;
+	uint32_t yaml_hash_{0};
+	uint32_t compute_yaml_hash_();
+	void save_state_();
 
 	// ---- Method declarations (implemented in lifx_emulation.cpp) ----
 	void beginUDP();

@@ -6,10 +6,53 @@ namespace lifx_emulation {
 
 static const char *const TAG = "lifx_emulation";
 
+uint32_t LifxEmulation::compute_yaml_hash_()
+{
+	uint32_t h = fnv1_hash(bulbLabel);
+	h ^= fnv1_hash(bulbLocation);
+	h ^= fnv1_hash(bulbLocationGUID);
+	h ^= fnv1_hash(bulbGroup);
+	h ^= fnv1_hash(bulbGroupGUID);
+	return h;
+}
+
+void LifxEmulation::save_state_()
+{
+	LifxPersistentState state;
+	state.yaml_hash = this->yaml_hash_;
+	memcpy(state.bulbLabel, bulbLabel, sizeof(bulbLabel));
+	memcpy(state.bulbLocation, bulbLocation, sizeof(bulbLocation));
+	memcpy(state.bulbLocationGUID, bulbLocationGUID, sizeof(bulbLocationGUID));
+	state.bulbLocationTime = bulbLocationTime;
+	memcpy(state.bulbGroup, bulbGroup, sizeof(bulbGroup));
+	memcpy(state.bulbGroupGUID, bulbGroupGUID, sizeof(bulbGroupGUID));
+	state.bulbGroupTime = bulbGroupTime;
+	this->pref_.save(&state);
+	global_preferences->sync();
+}
+
 void LifxEmulation::setup()
 {
 	// Read MAC address from WiFi hardware
 	WiFi.macAddress(this->mac);
+
+	// Restore persisted label/location/group if YAML defaults haven't changed
+	this->yaml_hash_ = compute_yaml_hash_();
+	this->pref_ = global_preferences->make_preference<LifxPersistentState>(fnv1_hash("lifx_emulation_state"));
+	LifxPersistentState state;
+	if (this->pref_.load(&state) && state.yaml_hash == this->yaml_hash_) {
+		memcpy(bulbLabel, state.bulbLabel, sizeof(bulbLabel));
+		memcpy(bulbLocation, state.bulbLocation, sizeof(bulbLocation));
+		memcpy(bulbLocationGUID, state.bulbLocationGUID, sizeof(bulbLocationGUID));
+		bulbLocationTime = state.bulbLocationTime;
+		memcpy(bulbGroup, state.bulbGroup, sizeof(bulbGroup));
+		memcpy(bulbGroupGUID, state.bulbGroupGUID, sizeof(bulbGroupGUID));
+		bulbGroupTime = state.bulbGroupTime;
+		ESP_LOGI(TAG, "Restored saved state: label=%s", bulbLabel);
+	} else {
+		ESP_LOGI(TAG, "Using YAML defaults (no saved state or YAML changed)");
+	}
+
 	this->beginUDP();
 }
 
@@ -296,13 +339,8 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 
 	case SET_BULB_LABEL:
 	{
-		for (int i = 0; i < LifxBulbLabelLength; i++)
-		{
-			if (bulbLabel[i] != request.data[i])
-			{
-				bulbLabel[i] = request.data[i];
-			}
-		}
+		memcpy(bulbLabel, request.data, LifxBulbLabelLength);
+		save_state_();
 	}
 	break;
 
@@ -321,13 +359,7 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	{
 		if (request.packet_type == SET_BULB_TAGS)
 		{
-			for (int i = 0; i < LifxBulbTagsLength; i++)
-			{
-				if (bulbTags[i] != request.data[i])
-				{
-					bulbTags[i] = lowByte(request.data[i]);
-				}
-			}
+			memcpy(bulbTags, request.data, LifxBulbTagsLength);
 		}
 
 		response.packet_type = BULB_TAGS;
@@ -343,13 +375,7 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	{
 		if (request.packet_type == SET_BULB_TAG_LABELS)
 		{
-			for (int i = 0; i < LifxBulbTagLabelsLength; i++)
-			{
-				if (bulbTagLabels[i] != request.data[i])
-				{
-					bulbTagLabels[i] = request.data[i];
-				}
-			}
+			memcpy(bulbTagLabels, request.data, LifxBulbTagLabelsLength);
 		}
 
 		response.packet_type = BULB_TAG_LABELS;
@@ -383,6 +409,7 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 				p[k] = request.data[k + 32 + 16];
 			}
 		}
+		save_state_();
 	}
 	break;
 
@@ -454,6 +481,7 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 				p[k] = request.data[k + 32 + 16];
 			}
 		}
+		save_state_();
 	}
 	break;
 
@@ -822,7 +850,8 @@ void LifxEmulation::setLightCombined()
 		}
 
 		call.set_brightness(bright);
-		if (dur > lastChange)
+		unsigned long elapsed = millis() - lastChange;
+		if (dur > elapsed)
 		{
 			call.set_transition_length(0);
 		}
@@ -857,7 +886,8 @@ void LifxEmulation::setLightDual()
 			callW.set_color_temperature(mireds);
 			callW.set_brightness(bright);
 
-			if (dur > lastChange)
+			unsigned long elapsed = millis() - lastChange;
+			if (dur > elapsed)
 			{
 				callW.set_transition_length(0);
 			}
