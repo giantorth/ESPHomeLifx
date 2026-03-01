@@ -1,5 +1,6 @@
 #include "lifx_emulation.h"
 #include "lifx_utils.h"
+#include <cmath>
 
 namespace esphome {
 namespace lifx_emulation {
@@ -27,6 +28,10 @@ void LifxEmulation::save_state_()
 	memcpy(state.bulbGroup, bulbGroup, sizeof(bulbGroup));
 	memcpy(state.bulbGroupGUID, bulbGroupGUID, sizeof(bulbGroupGUID));
 	state.bulbGroupTime = bulbGroupTime;
+	state.cloudStatus = cloudStatus;
+	memcpy(state.cloudBrokerUrl, cloudBrokerUrl, sizeof(cloudBrokerUrl));
+	memcpy(state.cloudAuthResponse, cloudAuthResponse, sizeof(cloudAuthResponse));
+	memcpy(state.authResponse, authResponse, sizeof(authResponse));
 	this->pref_.save(&state);
 	global_preferences->sync();
 	if (debug_) ESP_LOGD(TAG, "Saved state: label=%s, location=%s (%s), group=%s (%s)",
@@ -42,17 +47,27 @@ void LifxEmulation::setup()
 	this->yaml_hash_ = compute_yaml_hash_();
 	this->pref_ = global_preferences->make_preference<LifxPersistentState>(fnv1_hash("lifx_emulation_state"));
 	LifxPersistentState state;
-	if (this->pref_.load(&state) && state.yaml_hash == this->yaml_hash_) {
-		memcpy(bulbLabel, state.bulbLabel, sizeof(bulbLabel));
-		memcpy(bulbLocation, state.bulbLocation, sizeof(bulbLocation));
-		memcpy(bulbLocationGUID, state.bulbLocationGUID, sizeof(bulbLocationGUID));
-		bulbLocationTime = state.bulbLocationTime;
-		memcpy(bulbGroup, state.bulbGroup, sizeof(bulbGroup));
-		memcpy(bulbGroupGUID, state.bulbGroupGUID, sizeof(bulbGroupGUID));
-		bulbGroupTime = state.bulbGroupTime;
-		ESP_LOGI(TAG, "Restored saved state: label=%s", bulbLabel);
+	if (this->pref_.load(&state)) {
+		// Always restore cloud state regardless of YAML changes
+		cloudStatus = state.cloudStatus;
+		memcpy(cloudBrokerUrl, state.cloudBrokerUrl, sizeof(cloudBrokerUrl));
+		memcpy(cloudAuthResponse, state.cloudAuthResponse, sizeof(cloudAuthResponse));
+		memcpy(authResponse, state.authResponse, sizeof(authResponse));
+
+		if (state.yaml_hash == this->yaml_hash_) {
+			memcpy(bulbLabel, state.bulbLabel, sizeof(bulbLabel));
+			memcpy(bulbLocation, state.bulbLocation, sizeof(bulbLocation));
+			memcpy(bulbLocationGUID, state.bulbLocationGUID, sizeof(bulbLocationGUID));
+			bulbLocationTime = state.bulbLocationTime;
+			memcpy(bulbGroup, state.bulbGroup, sizeof(bulbGroup));
+			memcpy(bulbGroupGUID, state.bulbGroupGUID, sizeof(bulbGroupGUID));
+			bulbGroupTime = state.bulbGroupTime;
+			ESP_LOGI(TAG, "Restored saved state: label=%s", bulbLabel);
+		} else {
+			ESP_LOGI(TAG, "Using YAML defaults for label/location/group (YAML changed)");
+		}
 	} else {
-		ESP_LOGI(TAG, "Using YAML defaults (no saved state or YAML changed)");
+		ESP_LOGI(TAG, "Using YAML defaults (no saved state)");
 	}
 
 	this->beginUDP();
@@ -216,6 +231,7 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 
 	case SET_LIGHT_STATE:
 	{
+		stopWaveform(false);
 		hue = word(request.data[2], request.data[1]);
 		sat = word(request.data[4], request.data[3]);
 		bri = word(request.data[6], request.data[5]);
@@ -226,9 +242,8 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 			  (uint32_t)request.data[12] << 24;
 
 		setLight();
-		if (request.res_ack == RES_REQUIRED)
+		if (request.res_ack & RES_REQUIRED)
 		{
-			response.res_ack = NO_RESPONSE;
 			response.packet_type = LIGHT_STATUS;
 			response.protocol = LifxProtocol_AllBulbsResponse;
 			buildLightStateData(response.data);
@@ -240,45 +255,96 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 
 	case SET_WAVEFORM:
 	{
-		hue = word(request.data[3], request.data[2]);
-		sat = word(request.data[5], request.data[4]);
-		bri = word(request.data[7], request.data[6]);
-		kel = word(request.data[9], request.data[8]);
-		dur = (uint32_t)request.data[10] << 0 |
-			  (uint32_t)request.data[11] << 8 |
-			  (uint32_t)request.data[12] << 16 |
-			  (uint32_t)request.data[13] << 24;
-		setLight();
+		// SetWaveform(103) payload:
+		// [0] reserved, [1] transient, [2-3] hue, [4-5] sat,
+		// [6-7] bri, [8-9] kel, [10-13] period, [14-17] cycles(float),
+		// [18-19] skew_ratio(int16), [20] waveform
+		trans = request.data[1];
+		wave_hue_ = word(request.data[3], request.data[2]);
+		wave_sat_ = word(request.data[5], request.data[4]);
+		wave_bri_ = word(request.data[7], request.data[6]);
+		wave_kel_ = word(request.data[9], request.data[8]);
+		period = (uint32_t)request.data[10] |
+				 (uint32_t)request.data[11] << 8 |
+				 (uint32_t)request.data[12] << 16 |
+				 (uint32_t)request.data[13] << 24;
+		memcpy(&cycles, &request.data[14], sizeof(float));
+		skew_ratio = (int16_t)(request.data[18] | (request.data[19] << 8));
+		waveform = request.data[20];
+
+		if (debug_) ESP_LOGD(TAG, "Waveform: type=%u transient=%u period=%u cycles=%.1f skew=%d",
+			waveform, trans, period, cycles, skew_ratio);
+
+		startWaveform();
+
+		if (request.res_ack & RES_REQUIRED)
+		{
+			response.packet_type = LIGHT_STATUS;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			buildLightStateData(response.data);
+			response.data_size = 52;
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
 	case SET_WAVEFORM_OPTIONAL:
 	{
+		// SetWaveformOptional(119) payload:
+		// [0] reserved, [1] transient, [2-3] hue, [4-5] sat,
+		// [6-7] bri, [8-9] kel, [10-13] period, [14-17] cycles(float),
+		// [18-19] skew_ratio(int16), [20] waveform,
+		// [21] set_hue, [22] set_saturation, [23] set_brightness, [24] set_kelvin
+		trans = request.data[1];
+
+		// Start from current values, then apply only flagged fields
+		wave_hue_ = hue;
+		wave_sat_ = sat;
+		wave_bri_ = bri;
+		wave_kel_ = kel;
+
 		if (request.data[21])
 		{
-			hue = word(request.data[3], request.data[2]);
-			if (debug_) ESP_LOGD(TAG, "set hue: %u", hue);
+			wave_hue_ = word(request.data[3], request.data[2]);
+			if (debug_) ESP_LOGD(TAG, "set hue: %u", wave_hue_);
 		}
 		if (request.data[22])
 		{
-			sat = word(request.data[5], request.data[4]);
-			if (debug_) ESP_LOGD(TAG, "set sat: %u", sat);
+			wave_sat_ = word(request.data[5], request.data[4]);
+			if (debug_) ESP_LOGD(TAG, "set sat: %u", wave_sat_);
 		}
 		if (request.data[23])
 		{
-			bri = word(request.data[7], request.data[6]);
-			if (debug_) ESP_LOGD(TAG, "set bri: %u", bri);
+			wave_bri_ = word(request.data[7], request.data[6]);
+			if (debug_) ESP_LOGD(TAG, "set bri: %u", wave_bri_);
 		}
 		if (request.data[24])
 		{
-			kel = word(request.data[9], request.data[8]);
-			if (debug_) ESP_LOGD(TAG, "set kel: %u", kel);
+			wave_kel_ = word(request.data[9], request.data[8]);
+			if (debug_) ESP_LOGD(TAG, "set kel: %u", wave_kel_);
 		}
-		dur = (uint32_t)request.data[10] << 0 |
-			  (uint32_t)request.data[11] << 8 |
-			  (uint32_t)request.data[12] << 16 |
-			  (uint32_t)request.data[13] << 24;
-		setLight();
+
+		period = (uint32_t)request.data[10] |
+				 (uint32_t)request.data[11] << 8 |
+				 (uint32_t)request.data[12] << 16 |
+				 (uint32_t)request.data[13] << 24;
+		memcpy(&cycles, &request.data[14], sizeof(float));
+		skew_ratio = (int16_t)(request.data[18] | (request.data[19] << 8));
+		waveform = request.data[20];
+
+		if (debug_) ESP_LOGD(TAG, "WaveformOptional: type=%u transient=%u period=%u cycles=%.1f skew=%d",
+			waveform, trans, period, cycles, skew_ratio);
+
+		startWaveform();
+
+		if (request.res_ack & RES_REQUIRED)
+		{
+			response.packet_type = LIGHT_STATUS;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			buildLightStateData(response.data);
+			response.data_size = 52;
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -319,8 +385,20 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	case SET_POWER_STATE:
 	case SET_POWER_STATE2:
 	{
+		stopWaveform(false);
 		power_status = word(request.data[1], request.data[0]);
 		setLight();
+		if (request.res_ack & RES_REQUIRED)
+		{
+			response.packet_type = (request.packet_type == SET_POWER_STATE) ? POWER_STATE : POWER_STATE2;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			byte PowerData[] = {
+				lowByte(power_status),
+				highByte(power_status)};
+			memcpy(response.data, PowerData, sizeof(PowerData));
+			response.data_size = sizeof(PowerData);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -343,6 +421,14 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	{
 		memcpy(bulbLabel, request.data, LifxBulbLabelLength);
 		save_state_();
+		if (request.res_ack & RES_REQUIRED)
+		{
+			response.packet_type = BULB_LABEL;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			memcpy(response.data, bulbLabel, sizeof(bulbLabel));
+			response.data_size = sizeof(bulbLabel);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -364,11 +450,14 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 			memcpy(bulbTags, request.data, LifxBulbTagsLength);
 		}
 
-		response.packet_type = BULB_TAGS;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		memcpy(response.data, bulbTags, sizeof(bulbTags));
-		response.data_size = sizeof(bulbTags);
-		sendPacket(response, packet);
+		if (request.packet_type == GET_BULB_TAGS || (request.res_ack & RES_REQUIRED))
+		{
+			response.packet_type = BULB_TAGS;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			memcpy(response.data, bulbTags, sizeof(bulbTags));
+			response.data_size = sizeof(bulbTags);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -380,11 +469,14 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 			memcpy(bulbTagLabels, request.data, LifxBulbTagLabelsLength);
 		}
 
-		response.packet_type = BULB_TAG_LABELS;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		memcpy(response.data, bulbTagLabels, sizeof(bulbTagLabels));
-		response.data_size = sizeof(bulbTagLabels);
-		sendPacket(response, packet);
+		if (request.packet_type == GET_BULB_TAG_LABELS || (request.res_ack & RES_REQUIRED))
+		{
+			response.packet_type = BULB_TAG_LABELS;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			memcpy(response.data, bulbTagLabels, sizeof(bulbTagLabels));
+			response.data_size = sizeof(bulbTagLabels);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -413,31 +505,32 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 		}
 		save_state_();
 	}
-	break;
-
+	// fall through to send StateLocation if res_required
 	case GET_LOCATION_STATE:
 	{
-		response.packet_type = LOCATION_STATE;
-		response.res_ack = RES_REQUIRED;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		uint8_t *p = (uint8_t *)&bulbLocationTime;
-		byte LocationStateResponse[56] = {};
-		for (int i = 0; i < sizeof(bulbLocationGUIDb); i++)
+		if (request.packet_type == GET_LOCATION_STATE || (request.res_ack & RES_REQUIRED))
 		{
-			LocationStateResponse[i] = bulbLocationGUIDb[guidSeq[i]];
-		}
-		for (int j = 0; j < sizeof(bulbLocation); j++)
-		{
-			LocationStateResponse[j + 16] = bulbLocation[j];
-		}
-		for (int k = 0; k < sizeof(bulbLocationTime); k++)
-		{
-			LocationStateResponse[k + 32 + 16] = p[k];
-		}
+			response.packet_type = LOCATION_STATE;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			uint8_t *p = (uint8_t *)&bulbLocationTime;
+			byte LocationStateResponse[56] = {};
+			for (int i = 0; i < sizeof(bulbLocationGUIDb); i++)
+			{
+				LocationStateResponse[i] = bulbLocationGUIDb[guidSeq[i]];
+			}
+			for (int j = 0; j < sizeof(bulbLocation); j++)
+			{
+				LocationStateResponse[j + 16] = bulbLocation[j];
+			}
+			for (int k = 0; k < sizeof(bulbLocationTime); k++)
+			{
+				LocationStateResponse[k + 32 + 16] = p[k];
+			}
 
-		memcpy(response.data, LocationStateResponse, sizeof(LocationStateResponse));
-		response.data_size = sizeof(LocationStateResponse);
-		sendPacket(response, packet);
+			memcpy(response.data, LocationStateResponse, sizeof(LocationStateResponse));
+			response.data_size = sizeof(LocationStateResponse);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -451,12 +544,14 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 				authResponse[i] = request.data[i];
 			}
 		}
-		response.packet_type = AUTH_STATE;
-		response.res_ack = RES_REQUIRED;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		memcpy(response.data, authResponse, sizeof(authResponse));
-		response.data_size = sizeof(authResponse);
-		sendPacket(response, packet);
+		if (request.packet_type == GET_AUTH_STATE || (request.res_ack & RES_REQUIRED))
+		{
+			response.packet_type = AUTH_STATE;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			memcpy(response.data, authResponse, sizeof(authResponse));
+			response.data_size = sizeof(authResponse);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -485,31 +580,32 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 		}
 		save_state_();
 	}
-	break;
-
+	// fall through to send StateGroup if res_required
 	case GET_GROUP_STATE:
 	{
-		response.packet_type = GROUP_STATE;
-		response.res_ack = RES_REQUIRED;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		uint8_t *p = (uint8_t *)&bulbGroupTime;
-		byte groupStateResponse[56] = {};
-		for (int i = 0; i < sizeof(bulbGroupGUIDb); i++)
+		if (request.packet_type == GET_GROUP_STATE || (request.res_ack & RES_REQUIRED))
 		{
-			groupStateResponse[i] = bulbGroupGUIDb[guidSeq[i]];
-		}
-		for (int j = 0; j < sizeof(bulbGroup); j++)
-		{
-			groupStateResponse[j + 16] = bulbGroup[j];
-		}
-		for (int k = 0; k < sizeof(bulbGroupTime); k++)
-		{
-			groupStateResponse[k + 32 + 16] = p[k];
-		}
+			response.packet_type = GROUP_STATE;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			uint8_t *p = (uint8_t *)&bulbGroupTime;
+			byte groupStateResponse[56] = {};
+			for (int i = 0; i < sizeof(bulbGroupGUIDb); i++)
+			{
+				groupStateResponse[i] = bulbGroupGUIDb[guidSeq[i]];
+			}
+			for (int j = 0; j < sizeof(bulbGroup); j++)
+			{
+				groupStateResponse[j + 16] = bulbGroup[j];
+			}
+			for (int k = 0; k < sizeof(bulbGroupTime); k++)
+			{
+				groupStateResponse[k + 32 + 16] = p[k];
+			}
 
-		memcpy(response.data, groupStateResponse, sizeof(groupStateResponse));
-		response.data_size = sizeof(groupStateResponse);
-		sendPacket(response, packet);
+			memcpy(response.data, groupStateResponse, sizeof(groupStateResponse));
+			response.data_size = sizeof(groupStateResponse);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -517,7 +613,6 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	{
 		response.packet_type = VERSION_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
-		response.res_ack = RES_REQUIRED;
 		byte VersionData[] = {
 			lowByte(LifxBulbVendor),
 			highByte(LifxBulbVendor),
@@ -542,7 +637,6 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	{
 		response.packet_type = MESH_FIRMWARE_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
-		response.res_ack = RES_REQUIRED;
 		byte MeshVersionData[] = {
 			0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14,
 			0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14,
@@ -559,7 +653,6 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	{
 		response.packet_type = WIFI_FIRMWARE_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
-		response.res_ack = RES_REQUIRED;
 		byte WifiVersionData[] = {
 			0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14,
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -607,13 +700,13 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	case SET_CLOUD_STATE:
 	{
 		cloudStatus = request.data[0];
+		save_state_();
 		if (debug_) ESP_LOGD(TAG, "Cloud status changed to: %d", cloudStatus);
 	}
 	break;
 
 	case GET_CLOUD_STATE:
 	{
-		response.res_ack = RES_REQUIRED;
 		response.packet_type = CLOUD_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
 		response.data[0] = cloudStatus;
@@ -631,13 +724,16 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 			{
 				cloudAuthResponse[i] = request.data[i];
 			}
+			save_state_();
 		}
-		response.res_ack = RES_REQUIRED;
-		response.packet_type = CLOUD_AUTH_STATE;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		memcpy(response.data, cloudAuthResponse, sizeof(cloudAuthResponse));
-		response.data_size = sizeof(cloudAuthResponse);
-		sendPacket(response, packet);
+		if (request.packet_type == GET_CLOUD_AUTH || (request.res_ack & RES_REQUIRED))
+		{
+			response.packet_type = CLOUD_AUTH_STATE;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			memcpy(response.data, cloudAuthResponse, sizeof(cloudAuthResponse));
+			response.data_size = sizeof(cloudAuthResponse);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -650,13 +746,16 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 			{
 				cloudBrokerUrl[i] = request.data[i];
 			}
+			save_state_();
 		}
-		response.res_ack = RES_REQUIRED;
-		response.packet_type = CLOUD_BROKER_STATE;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		memcpy(response.data, cloudBrokerUrl, sizeof(cloudBrokerUrl));
-		response.data_size = sizeof(cloudBrokerUrl);
-		sendPacket(response, packet);
+		if (request.packet_type == GET_CLOUD_BROKER || (request.res_ack & RES_REQUIRED))
+		{
+			response.packet_type = CLOUD_BROKER_STATE;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			memcpy(response.data, cloudBrokerUrl, sizeof(cloudBrokerUrl));
+			response.data_size = sizeof(cloudBrokerUrl);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -694,19 +793,10 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	break;
 	}
 
-	// Handle RES/ACK flags
-	switch (request.res_ack)
-	{
-	case NO_RESPONSE:
-		break;
-
-	case RES_REQUIRED:
-		break;
-
-	case RES_ACK_PAN_REQUIRED:
-	case ACK_PAN_REQUIRED:
-	case RES_ACK_REQUIRED:
-	case ACK_REQUIRED:
+	// Handle ack_required (bit 1) - send Acknowledgement(45) independently of res_required
+	// Per the LIFX spec, res_required (bit 0) and ack_required (bit 1) are independent flags.
+	// res_required is handled by individual message handlers above.
+	if (request.res_ack & ACK_REQUIRED)
 	{
 		if (debug_) ESP_LOGD(TAG, "Acknowledgement Requested");
 		response.packet_type = ACKNOWLEDGEMENT;
@@ -716,24 +806,11 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 		response.data_size = 0;
 		sendPacket(response, packet);
 	}
-	break;
 
-	case PAN_REQUIRED:
+	// Log non-standard flag bits (observed from real devices, bits 2+ are reserved per spec)
+	if (request.res_ack & PAN_REQUIRED)
 	{
-		if (debug_) ESP_LOGD(TAG, "PAN Response Required");
-	}
-	break;
-
-	case RES_PAN_REQUIRED:
-	{
-		if (debug_) ESP_LOGD(TAG, "RES & PAN Response Required");
-	}
-	break;
-
-	default:
-	{
-		if (debug_) ESP_LOGD(TAG, "Unknown RES_ACK 0x%02X", request.res_ack);
-	}
+		if (debug_) ESP_LOGD(TAG, "PAN flag set (0x%02X)", request.res_ack);
 	}
 }
 
@@ -804,6 +881,130 @@ unsigned int LifxEmulation::sendPacket(LifxPacket &pkt, AsyncUDPPacket &Udpi)
 
 	if (debug_) ESP_LOGD(TAG, "<- %s (0x%02X/%d, %d bytes)", lifx_packet_type_name(pkt.packet_type), pkt.packet_type, pkt.packet_type, _packetLength);
 	return _packetLength;
+}
+
+void LifxEmulation::startWaveform()
+{
+	// Save current color as the waveform origin
+	orig_hue_ = hue;
+	orig_sat_ = sat;
+	orig_bri_ = bri;
+	orig_kel_ = kel;
+
+	if (period == 0) {
+		// Instant: just apply target color directly
+		hue = wave_hue_;
+		sat = wave_sat_;
+		bri = wave_bri_;
+		kel = wave_kel_;
+		dur = 0;
+		setLight();
+		return;
+	}
+
+	waveform_active_ = true;
+	waveform_start_ = millis();
+	waveform_last_update_ = 0;
+
+	if (debug_) ESP_LOGD(TAG, "Waveform started: orig(%u,%u,%u,%u) -> target(%u,%u,%u,%u)",
+		orig_hue_, orig_sat_, orig_bri_, orig_kel_,
+		wave_hue_, wave_sat_, wave_bri_, wave_kel_);
+}
+
+void LifxEmulation::stopWaveform(bool restore)
+{
+	if (!waveform_active_) return;
+	waveform_active_ = false;
+
+	if (restore) {
+		// Transient: return to original color
+		hue = orig_hue_;
+		sat = orig_sat_;
+		bri = orig_bri_;
+		kel = orig_kel_;
+	} else {
+		// Non-transient: end on target color
+		hue = wave_hue_;
+		sat = wave_sat_;
+		bri = wave_bri_;
+		kel = wave_kel_;
+	}
+
+	dur = 0;
+	setLight();
+
+	if (debug_) ESP_LOGD(TAG, "Waveform stopped (restore=%s)", restore ? "true" : "false");
+}
+
+void LifxEmulation::loop()
+{
+	if (!waveform_active_) return;
+
+	unsigned long now = millis();
+
+	// Rate-limit updates to ~20fps to avoid overwhelming the light hardware
+	if (now - waveform_last_update_ < 50) return;
+	waveform_last_update_ = now;
+
+	unsigned long elapsed = now - waveform_start_;
+
+	// Check if waveform is complete (cycles > 0 means finite)
+	if (cycles > 0 && period > 0) {
+		unsigned long total_ms = (unsigned long)(period * cycles);
+		if (elapsed >= total_ms) {
+			stopWaveform(trans != 0);
+			return;
+		}
+	}
+
+	// Calculate position within current cycle (0.0 to 1.0)
+	float cycle_pos = fmodf((float)elapsed / (float)period, 1.0f);
+
+	// Calculate interpolation factor based on waveform type
+	// f=0.0 means original color, f=1.0 means target color
+	float f = 0.0f;
+	switch (waveform) {
+	case WAVEFORM_SAW:
+		// Linear ramp from original to target, then snap back
+		f = cycle_pos;
+		break;
+	case WAVEFORM_SINE:
+		// Smooth sinusoidal oscillation: original -> target -> original
+		f = (1.0f - cosf(cycle_pos * 2.0f * (float)M_PI)) / 2.0f;
+		break;
+	case WAVEFORM_HALF_SINE:
+		// Smooth half-sine: original -> target -> original (positive half only)
+		f = sinf(cycle_pos * (float)M_PI);
+		break;
+	case WAVEFORM_TRIANGLE:
+		// Linear triangle: original -> target -> original
+		f = cycle_pos < 0.5f ? cycle_pos * 2.0f : 2.0f - cycle_pos * 2.0f;
+		break;
+	case WAVEFORM_PULSE: {
+		// Square wave with duty cycle controlled by skew_ratio
+		// skew_ratio: -32768..32767 maps to 0..1, duty = 1 - ratio
+		float ratio = ((float)skew_ratio + 32768.0f) / 65535.0f;
+		f = cycle_pos < (1.0f - ratio) ? 1.0f : 0.0f;
+		break;
+	}
+	default:
+		f = 0.0f;
+		break;
+	}
+
+	// Interpolate HSBK values
+	// Hue uses shortest path around the color wheel
+	int32_t hue_diff = (int32_t)wave_hue_ - (int32_t)orig_hue_;
+	if (hue_diff > 32767) hue_diff -= 65536;
+	if (hue_diff < -32768) hue_diff += 65536;
+	hue = (uint16_t)((int32_t)orig_hue_ + (int32_t)(f * (float)hue_diff));
+
+	sat = (uint16_t)((float)orig_sat_ + f * ((float)wave_sat_ - (float)orig_sat_));
+	bri = (uint16_t)((float)orig_bri_ + f * ((float)wave_bri_ - (float)orig_bri_));
+	kel = (uint16_t)((float)orig_kel_ + f * ((float)wave_kel_ - (float)orig_kel_));
+
+	dur = 0; // No transition for waveform frame updates
+	setLight();
 }
 
 void LifxEmulation::setLight()

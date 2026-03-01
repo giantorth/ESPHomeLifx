@@ -3,12 +3,13 @@ esphome:
   
 exp8266: 
   board: d1_mini
+  restore_from_flash: true
 
 external_components:
   - source:
       type: git
       url: https://github.com/giantorth/ESPHomeLifx
-      ref: master
+    refresh: always
     components: [lifx_emulation]
 
 # Lifx emulation needs UTC time to respond to packets correctly.

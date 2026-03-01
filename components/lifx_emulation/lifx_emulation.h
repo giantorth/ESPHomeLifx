@@ -27,6 +27,11 @@ struct LifxPersistentState {
 	char bulbGroup[32];
 	char bulbGroupGUID[37];
 	uint64_t bulbGroupTime;
+	// Cloud state (always restored, independent of yaml_hash)
+	uint8_t cloudStatus;
+	uint8_t cloudBrokerUrl[33];
+	uint8_t cloudAuthResponse[32];
+	uint8_t authResponse[56];
 };
 
 class LifxEmulation : public Component
@@ -52,7 +57,7 @@ public:
 
 	// ---- ESPHome Component lifecycle ----
 	void setup() override;
-	void loop() override {}
+	void loop() override;
 
 	// Run after WiFi is established so the UDP listener can bind successfully
 	float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
@@ -90,17 +95,22 @@ private:
 	uint16_t sat = 0;
 	uint16_t bri = 65535;
 	uint16_t kel = 2700;
-	uint8_t trans = 0;
-	uint32_t period = 0;
-	float cycles = 0;
-	int skew_ratio = 0; //signed 16 bit int
-	uint8_t waveform = 0;
-	uint8_t set_hue = 1;
-	uint8_t set_sat = 1;
-	uint8_t set_bri = 1;
-	uint8_t set_kel = 1;
 	long dim = 0;
 	uint32_t dur = 0;
+
+	// Waveform parameters (from SetWaveform / SetWaveformOptional)
+	uint8_t trans = 0;       // transient: 1 = return to original after effect
+	uint32_t period = 0;     // milliseconds per cycle
+	float cycles = 0;        // number of cycles (0 = infinite)
+	int16_t skew_ratio = 0;  // PULSE duty cycle (-32768 to 32767)
+	uint8_t waveform = 0;    // LifxWaveform enum
+
+	// Waveform animation state
+	bool waveform_active_{false};
+	unsigned long waveform_start_{0};
+	unsigned long waveform_last_update_{0};
+	uint16_t orig_hue_{0}, orig_sat_{0}, orig_bri_{0}, orig_kel_{2700};
+	uint16_t wave_hue_{0}, wave_sat_{0}, wave_bri_{0}, wave_kel_{2700};
 	uint8_t _sequence = 0;
 	unsigned long lastChange = millis();
 	uint32_t tx_bytes = 0;
@@ -137,6 +147,8 @@ private:
 	void setLight();
 	void setLightCombined();
 	void setLightDual();
+	void startWaveform();
+	void stopWaveform(bool restore);
 };
 
 } // namespace lifx_emulation
