@@ -228,9 +228,8 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 			  (uint32_t)request.data[12] << 24;
 
 		setLight();
-		if (request.res_ack == RES_REQUIRED)
+		if (request.res_ack & RES_REQUIRED)
 		{
-			response.res_ack = NO_RESPONSE;
 			response.packet_type = LIGHT_STATUS;
 			response.protocol = LifxProtocol_AllBulbsResponse;
 			buildLightStateData(response.data);
@@ -375,6 +374,17 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 		stopWaveform(false);
 		power_status = word(request.data[1], request.data[0]);
 		setLight();
+		if (request.res_ack & RES_REQUIRED)
+		{
+			response.packet_type = (request.packet_type == SET_POWER_STATE) ? POWER_STATE : POWER_STATE2;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			byte PowerData[] = {
+				lowByte(power_status),
+				highByte(power_status)};
+			memcpy(response.data, PowerData, sizeof(PowerData));
+			response.data_size = sizeof(PowerData);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -397,6 +407,14 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	{
 		memcpy(bulbLabel, request.data, LifxBulbLabelLength);
 		save_state_();
+		if (request.res_ack & RES_REQUIRED)
+		{
+			response.packet_type = BULB_LABEL;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			memcpy(response.data, bulbLabel, sizeof(bulbLabel));
+			response.data_size = sizeof(bulbLabel);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -418,11 +436,14 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 			memcpy(bulbTags, request.data, LifxBulbTagsLength);
 		}
 
-		response.packet_type = BULB_TAGS;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		memcpy(response.data, bulbTags, sizeof(bulbTags));
-		response.data_size = sizeof(bulbTags);
-		sendPacket(response, packet);
+		if (request.packet_type == GET_BULB_TAGS || (request.res_ack & RES_REQUIRED))
+		{
+			response.packet_type = BULB_TAGS;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			memcpy(response.data, bulbTags, sizeof(bulbTags));
+			response.data_size = sizeof(bulbTags);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -434,11 +455,14 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 			memcpy(bulbTagLabels, request.data, LifxBulbTagLabelsLength);
 		}
 
-		response.packet_type = BULB_TAG_LABELS;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		memcpy(response.data, bulbTagLabels, sizeof(bulbTagLabels));
-		response.data_size = sizeof(bulbTagLabels);
-		sendPacket(response, packet);
+		if (request.packet_type == GET_BULB_TAG_LABELS || (request.res_ack & RES_REQUIRED))
+		{
+			response.packet_type = BULB_TAG_LABELS;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			memcpy(response.data, bulbTagLabels, sizeof(bulbTagLabels));
+			response.data_size = sizeof(bulbTagLabels);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -467,31 +491,32 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 		}
 		save_state_();
 	}
-	break;
-
+	// fall through to send StateLocation if res_required
 	case GET_LOCATION_STATE:
 	{
-		response.packet_type = LOCATION_STATE;
-		response.res_ack = RES_REQUIRED;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		uint8_t *p = (uint8_t *)&bulbLocationTime;
-		byte LocationStateResponse[56] = {};
-		for (int i = 0; i < sizeof(bulbLocationGUIDb); i++)
+		if (request.packet_type == GET_LOCATION_STATE || (request.res_ack & RES_REQUIRED))
 		{
-			LocationStateResponse[i] = bulbLocationGUIDb[guidSeq[i]];
-		}
-		for (int j = 0; j < sizeof(bulbLocation); j++)
-		{
-			LocationStateResponse[j + 16] = bulbLocation[j];
-		}
-		for (int k = 0; k < sizeof(bulbLocationTime); k++)
-		{
-			LocationStateResponse[k + 32 + 16] = p[k];
-		}
+			response.packet_type = LOCATION_STATE;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			uint8_t *p = (uint8_t *)&bulbLocationTime;
+			byte LocationStateResponse[56] = {};
+			for (int i = 0; i < sizeof(bulbLocationGUIDb); i++)
+			{
+				LocationStateResponse[i] = bulbLocationGUIDb[guidSeq[i]];
+			}
+			for (int j = 0; j < sizeof(bulbLocation); j++)
+			{
+				LocationStateResponse[j + 16] = bulbLocation[j];
+			}
+			for (int k = 0; k < sizeof(bulbLocationTime); k++)
+			{
+				LocationStateResponse[k + 32 + 16] = p[k];
+			}
 
-		memcpy(response.data, LocationStateResponse, sizeof(LocationStateResponse));
-		response.data_size = sizeof(LocationStateResponse);
-		sendPacket(response, packet);
+			memcpy(response.data, LocationStateResponse, sizeof(LocationStateResponse));
+			response.data_size = sizeof(LocationStateResponse);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -505,12 +530,14 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 				authResponse[i] = request.data[i];
 			}
 		}
-		response.packet_type = AUTH_STATE;
-		response.res_ack = RES_REQUIRED;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		memcpy(response.data, authResponse, sizeof(authResponse));
-		response.data_size = sizeof(authResponse);
-		sendPacket(response, packet);
+		if (request.packet_type == GET_AUTH_STATE || (request.res_ack & RES_REQUIRED))
+		{
+			response.packet_type = AUTH_STATE;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			memcpy(response.data, authResponse, sizeof(authResponse));
+			response.data_size = sizeof(authResponse);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -539,31 +566,32 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 		}
 		save_state_();
 	}
-	break;
-
+	// fall through to send StateGroup if res_required
 	case GET_GROUP_STATE:
 	{
-		response.packet_type = GROUP_STATE;
-		response.res_ack = RES_REQUIRED;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		uint8_t *p = (uint8_t *)&bulbGroupTime;
-		byte groupStateResponse[56] = {};
-		for (int i = 0; i < sizeof(bulbGroupGUIDb); i++)
+		if (request.packet_type == GET_GROUP_STATE || (request.res_ack & RES_REQUIRED))
 		{
-			groupStateResponse[i] = bulbGroupGUIDb[guidSeq[i]];
-		}
-		for (int j = 0; j < sizeof(bulbGroup); j++)
-		{
-			groupStateResponse[j + 16] = bulbGroup[j];
-		}
-		for (int k = 0; k < sizeof(bulbGroupTime); k++)
-		{
-			groupStateResponse[k + 32 + 16] = p[k];
-		}
+			response.packet_type = GROUP_STATE;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			uint8_t *p = (uint8_t *)&bulbGroupTime;
+			byte groupStateResponse[56] = {};
+			for (int i = 0; i < sizeof(bulbGroupGUIDb); i++)
+			{
+				groupStateResponse[i] = bulbGroupGUIDb[guidSeq[i]];
+			}
+			for (int j = 0; j < sizeof(bulbGroup); j++)
+			{
+				groupStateResponse[j + 16] = bulbGroup[j];
+			}
+			for (int k = 0; k < sizeof(bulbGroupTime); k++)
+			{
+				groupStateResponse[k + 32 + 16] = p[k];
+			}
 
-		memcpy(response.data, groupStateResponse, sizeof(groupStateResponse));
-		response.data_size = sizeof(groupStateResponse);
-		sendPacket(response, packet);
+			memcpy(response.data, groupStateResponse, sizeof(groupStateResponse));
+			response.data_size = sizeof(groupStateResponse);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -571,7 +599,6 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	{
 		response.packet_type = VERSION_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
-		response.res_ack = RES_REQUIRED;
 		byte VersionData[] = {
 			lowByte(LifxBulbVendor),
 			highByte(LifxBulbVendor),
@@ -596,7 +623,6 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	{
 		response.packet_type = MESH_FIRMWARE_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
-		response.res_ack = RES_REQUIRED;
 		byte MeshVersionData[] = {
 			0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14,
 			0x00, 0x94, 0x18, 0x58, 0x1c, 0x05, 0xd9, 0x14,
@@ -613,7 +639,6 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	{
 		response.packet_type = WIFI_FIRMWARE_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
-		response.res_ack = RES_REQUIRED;
 		byte WifiVersionData[] = {
 			0x00, 0x88, 0x82, 0xaa, 0x7d, 0x15, 0x35, 0x14,
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -667,7 +692,6 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 
 	case GET_CLOUD_STATE:
 	{
-		response.res_ack = RES_REQUIRED;
 		response.packet_type = CLOUD_STATE;
 		response.protocol = LifxProtocol_AllBulbsResponse;
 		response.data[0] = cloudStatus;
@@ -686,12 +710,14 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 				cloudAuthResponse[i] = request.data[i];
 			}
 		}
-		response.res_ack = RES_REQUIRED;
-		response.packet_type = CLOUD_AUTH_STATE;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		memcpy(response.data, cloudAuthResponse, sizeof(cloudAuthResponse));
-		response.data_size = sizeof(cloudAuthResponse);
-		sendPacket(response, packet);
+		if (request.packet_type == GET_CLOUD_AUTH || (request.res_ack & RES_REQUIRED))
+		{
+			response.packet_type = CLOUD_AUTH_STATE;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			memcpy(response.data, cloudAuthResponse, sizeof(cloudAuthResponse));
+			response.data_size = sizeof(cloudAuthResponse);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -705,12 +731,14 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 				cloudBrokerUrl[i] = request.data[i];
 			}
 		}
-		response.res_ack = RES_REQUIRED;
-		response.packet_type = CLOUD_BROKER_STATE;
-		response.protocol = LifxProtocol_AllBulbsResponse;
-		memcpy(response.data, cloudBrokerUrl, sizeof(cloudBrokerUrl));
-		response.data_size = sizeof(cloudBrokerUrl);
-		sendPacket(response, packet);
+		if (request.packet_type == GET_CLOUD_BROKER || (request.res_ack & RES_REQUIRED))
+		{
+			response.packet_type = CLOUD_BROKER_STATE;
+			response.protocol = LifxProtocol_AllBulbsResponse;
+			memcpy(response.data, cloudBrokerUrl, sizeof(cloudBrokerUrl));
+			response.data_size = sizeof(cloudBrokerUrl);
+			sendPacket(response, packet);
+		}
 	}
 	break;
 
@@ -748,19 +776,10 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 	break;
 	}
 
-	// Handle RES/ACK flags
-	switch (request.res_ack)
-	{
-	case NO_RESPONSE:
-		break;
-
-	case RES_REQUIRED:
-		break;
-
-	case RES_ACK_PAN_REQUIRED:
-	case ACK_PAN_REQUIRED:
-	case RES_ACK_REQUIRED:
-	case ACK_REQUIRED:
+	// Handle ack_required (bit 1) - send Acknowledgement(45) independently of res_required
+	// Per the LIFX spec, res_required (bit 0) and ack_required (bit 1) are independent flags.
+	// res_required is handled by individual message handlers above.
+	if (request.res_ack & ACK_REQUIRED)
 	{
 		if (debug_) ESP_LOGD(TAG, "Acknowledgement Requested");
 		response.packet_type = ACKNOWLEDGEMENT;
@@ -770,24 +789,11 @@ void LifxEmulation::handleRequest(LifxPacket &request, AsyncUDPPacket &packet)
 		response.data_size = 0;
 		sendPacket(response, packet);
 	}
-	break;
 
-	case PAN_REQUIRED:
+	// Log non-standard flag bits (observed from real devices, bits 2+ are reserved per spec)
+	if (request.res_ack & PAN_REQUIRED)
 	{
-		if (debug_) ESP_LOGD(TAG, "PAN Response Required");
-	}
-	break;
-
-	case RES_PAN_REQUIRED:
-	{
-		if (debug_) ESP_LOGD(TAG, "RES & PAN Response Required");
-	}
-	break;
-
-	default:
-	{
-		if (debug_) ESP_LOGD(TAG, "Unknown RES_ACK 0x%02X", request.res_ack);
-	}
+		if (debug_) ESP_LOGD(TAG, "PAN flag set (0x%02X)", request.res_ack);
 	}
 }
 
