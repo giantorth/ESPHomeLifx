@@ -21,7 +21,9 @@ If you add this component it should be the last item in the YAML or it might cau
 - Added support for combined RGBWW lights (single light entity with RGB + cold white + warm white channels)
 - Backward compatible: existing separate RGB + CWWW dual-light configurations still work
 - Refactored as an ESPHome external component (no more `includes:` / `custom_component:` needed)
-- Supports saving label/group/location values if set via the official app
+- Supports saving label/group/location/cloud values if set via the official app
+- Added waveform effect support (SetWaveform / SetWaveformOptional packets): SAW, SINE, HALF_SINE, TRIANGLE, and PULSE waveforms
+- Fixed res/ack flag handling
 
 ### 0.5.1
 
@@ -40,7 +42,7 @@ If you add this component it should be the last item in the YAML or it might cau
 - Now understands cloud status/provisioning/config packets that come from app
 - Bulbs now appear to the app as ready to join cloud, and when "joined" the iOS app caches info about bulbs much better (no more disappearing and reappearing!)
   - Bulbs do not talk to any cloud and only store provisioning data.  Buy real bulbs if you want a commercial cloud.
-  - Cloud provisioning status/data is lost on bulb reboot at this time
+  - Cloud provisioning status/data is lost on bulb reboot at this time (fixed in 0.7)
 - Fixed flaw in example yaml (platformio_options will break new compiles, now correct libraries directive)
 
 ### 0.3
@@ -193,16 +195,16 @@ logger:
   - Now with cloud provioning packet support (mobile app to bulb only)
 - Appears in a Location/Group for supported applications
 - Supports combined RGBWW lights or separate RGB + CWWW dual-light setups
+- Waveform effects (SAW, SINE, HALF_SINE, TRIANGLE, PULSE) with transient/non-transient and finite/infinite cycle support
 ## Lots of work still todo
 
 - No real Lifx Cloud support (don't count on it either)
   - Required for Alexa/Google Home integration.  Use Home Assistant instead?
 - Ignores packets coming from other offical bulbs yet (They seem to broadcast certain responses)
 - Real bulb MAC addresses all start with D0:73:D5, haven't tried mirroring this to see if behavior changes
-- Waveform bulb effects are not supported yet <https://lan.developer.lifx.com/docs/waveforms>
 ## Persistent State
 
-The component saves bulb label, location, and group to flash whenever they are changed at runtime (e.g. via the LIFX app). On boot, if the YAML defaults haven't changed, the saved values are restored automatically.
+The component saves bulb label, location, group, and cloud provisioning state to flash whenever they are changed at runtime (e.g. via the LIFX app). On boot, cloud state is always restored from flash. Label/location/group are restored only if the YAML defaults haven't changed (so updating YAML resets them to the new defaults).
 
 To use this feature, you must enable `restore_from_flash` in your ESPHome platform config:
 
